@@ -48,14 +48,8 @@ Tool: mcp__fb1640e6__read_file_content
 fileId: <source file ID from Step 1>
 ```
 
-```
-Tool: mcp__fb1640e6__read_file_content
-fileId: 1OiBQF5Vza0sohXDZ7Cf0otRr6JOrKImF   ← reference workbook (fixed)
-```
-
-The reference workbook is "NBCU Price Promotions ChatGPT.xlsx". It contains:
-- `looper_format` sheet — example output rows (ignore for transformation)
-- `title list` sheet — Vendor Identifier + Title pairs used for MPM validation
+Fetch the title list directly as CSV and write to /tmp/nbcu_ref.txt:
+https://docs.google.com/spreadsheets/d/1OiBQF5Vza0sohXDZ7Cf0otRr6JOrKImF/export?format=csv&gid=1638555779
 
 ## Step 3 — Write text to temp files
 
@@ -64,7 +58,6 @@ so the transform script can read it:
 
 ```
 Write /tmp/nbcu_src.txt   ← fileContent from source file
-Write /tmp/nbcu_ref.txt   ← fileContent from reference file
 ```
 
 ## Step 4 — Run the transform script
