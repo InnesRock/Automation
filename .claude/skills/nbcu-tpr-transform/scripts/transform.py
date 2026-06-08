@@ -72,13 +72,13 @@ ROW_PATTERN = re.compile(
 HEADERS = [
     'Platform Name',
     'Territory ISO Code',
+    'License Type',
+    'Product Name',
     'Promo Start Date',
     'Promo End Date',
-    'Format',
-    'Title',
+    'Product Format',
     'Retail Price',
     'Promoted Price',
-    'Vendor Identifier',
     'MPM',
 ]
 
@@ -150,16 +150,16 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
                 continue
             row_emitted = True
             rows.append([
-                platform,                   # Platform Name
-                territory,                  # Territory ISO Code
-                start_date,                 # Promo Start Date
-                end_date,                   # Promo End Date
-                fmt,                        # Format
-                title,                      # Title
-                f'{float(price_str):.2f}',  # Retail Price (text string)
-                '-',                        # Promoted Price
-                mpm,                        # Vendor Identifier
-                mpm,                        # MPM
+                platform,
+                territory,
+                'EST',
+                title,
+                start_date,
+                end_date,
+                fmt,
+                f'{float(price_str):.2f}',
+                '-',
+                mpm,
             ])
 
         if not row_emitted:
@@ -179,7 +179,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
     # Apply text number format to Retail Price (col 7) and MPM (col 10)
     # so Excel doesn't reinterpret them as numbers.
     for row_cells in ws.iter_rows(min_row=2):
-        row_cells[6].number_format = '@'   # Retail Price  (0-indexed → col 7)
+        row_cells[7].number_format = '@'   # Retail Price  (0-indexed → col 7)
         row_cells[9].number_format = '@'   # MPM           (0-indexed → col 10)
 
     wb.save(output_path)
