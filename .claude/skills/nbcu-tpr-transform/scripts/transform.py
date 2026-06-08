@@ -132,7 +132,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
     ref_mpms = _load_ref_mpms(ref_text)
 
     rows = []
-    unknown_mpms: set = set()
+    unknown_mpms: dict = {}  # mpm -> title
     unknown_platforms: set = set()
     skipped_rows = 0
 
@@ -156,7 +156,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
 
         # Flag MPMs not in the reference list
         if ref_mpms and mpm not in ref_mpms:
-            unknown_mpms.add(mpm)
+            unknown_mpms[mpm] = title
 
         # Emit one output row per non-zero price
         row_emitted = False
@@ -199,9 +199,21 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
 
     wb.save(output_path)
 
+    # Write unknown MPMs CSV if any
+    csv_path = None
+    if unknown_mpms:
+        import csv
+        csv_path = output_path.replace('.xlsx', '_unknown_mpms.csv')
+        with open(csv_path, 'w', newline='') as cf:
+            writer = csv.writer(cf)
+            writer.writerow(['MPM', 'Title'])
+            for mpm, title in sorted(unknown_mpms.items()):
+                writer.writerow([mpm, title])
+
     return {
         'output_rows':       len(rows),
-        'unknown_mpms':      sorted(unknown_mpms),
+        'unknown_mpms':      sorted(unknown_mpms.keys()),
+        'unknown_mpms_csv':  csv_path,
         'unknown_platforms': sorted(unknown_platforms),
         'skipped_rows':      skipped_rows,
     }
