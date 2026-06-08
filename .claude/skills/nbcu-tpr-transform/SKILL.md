@@ -93,15 +93,11 @@ The script prints a JSON summary to stdout:
 }
 ```
 
-## Step 5 — Present the output
+## Step 5 — Post to Slack
 
-Call `mcp__cowork__present_files` with the XLSX path, then report:
-
-- **Output rows** — total data rows written
-- **Source file** — name and date received
-- **Unknown MPMs** — list any MPMs not in the reference title list
-- **Unknown platforms** — list any PARTNER values not in the rename map
-- **Skipped rows** — rows where all prices were zero
+Run:
+pip install slack-sdk --break-system-packages -q
+python scripts/post_to_slack.py "<output_path>" "✅ NBCU TPR Transform complete — <output_rows> rows. Unknown MPMs: <list or 'none'>."
 
 ## Platform rename map (for reference)
 
