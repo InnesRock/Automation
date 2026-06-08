@@ -82,11 +82,6 @@ HEADERS = [
     'MPM',
 ]
 
-# Tokens that look like MPMs in the text but are actually header/label words
-_MPM_SKIP = {'Vendor', 'Title', 'USD', 'CAD', 'SRP', 'TPR', 'EST', 'UHD',
-             'SD', 'HD', 'US', 'CA', 'START', 'END', 'DATE', 'PARTNER',
-             'PRODUCT', 'NAME', 'ID', 'TERRITORY', 'FORMAT'}
-
 
 def _parse_date(date_str: str) -> str:
     """Convert M/D/YYYY → YYYY-MM-DD."""
@@ -95,23 +90,13 @@ def _parse_date(date_str: str) -> str:
 
 def _load_ref_mpms(ref_text: str) -> set:
     """
-    Extract the set of valid MPMs from the 'title list' section of the
-    reference workbook text.  Returns an empty set if the section is not
-    found (non-fatal — unknown MPM check is skipped).
+    Extract valid MPMs from the title list CSV.
+    Expects the first column to be Vendor Identifier (MPM).
     """
-    marker = 'title list '
-    idx = ref_text.find(marker)
-    if idx == -1:
-        return set()
-    title_section = ref_text[idx + len(marker):]
-    # MPMs appear as the first comma-separated token on each row, e.g.:
-    #   " ABC123,Some Title Name"
-    mpm_pat = re.compile(r'(?:^| )([A-Z0-9]{3,8}),')
-    return {
-        m.group(1)
-        for m in mpm_pat.finditer(title_section)
-        if m.group(1) not in _MPM_SKIP
-    }
+    import csv, io
+    reader = csv.reader(io.StringIO(ref_text))
+    next(reader, None)  # skip header row
+    return {row[0].strip() for row in reader if row and row[0].strip()}
 
 
 def transform(src_text: str, ref_text: str, output_path: str) -> dict:
