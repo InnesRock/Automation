@@ -97,7 +97,7 @@ The script prints a JSON summary to stdout:
 
 Run:
 pip install slack-sdk --break-system-packages -q
-python scripts/post_to_slack.py "<output_path>" "✅ NBCU TPR Transform complete — <output_rows> rows. Unknown MPMs: <list or 'none'>."
+python <skill_dir>/scripts/post_to_slack.py "<output_path>" "✅ NBCU TPR Transform complete — <output_rows> rows. Unknown MPMs: <list or 'none'>."
 
 ## Platform rename map (for reference)
 
