@@ -17,7 +17,7 @@ Looper import format, and save the output XLSX.
 
 ## Connectors required
 
-- **Google Drive MCP** (`mcp__fb1640e6__*`) — for file search and content
+- **Google Drive MCP** (`mcp__Google-Drive__*`) — for file search and content
 - **Gmail MCP** (`mcp__e02e688d__*`) — fallback source discovery
 
 ## Step 1 — Find the source file
@@ -25,7 +25,7 @@ Looper import format, and save the output XLSX.
 Search the NBCU TPR Inbox Drive folder for the most recent file:
 
 ```
-Tool: mcp__fb1640e6__search_files
+Tool: mcp__Google-Drive__search_files
 folderId: 1NhHxH8fw_E30QD_4AwD825fVQg2cG6a6
 ```
 
@@ -44,12 +44,12 @@ Then locate the corresponding file in Drive by name.
 > representation from `read_file_content` is what the transform script parses.
 
 ```
-Tool: mcp__fb1640e6__read_file_content
+Tool: mcp__Google-Drive__read_file_content
 fileId: <source file ID from Step 1>
 ```
 
 ```
-Tool: mcp__fb1640e6__read_file_content
+Tool: mcp__Google-Drive__read_file_content
 fileId: 1OiBQF5Vza0sohXDZ7Cf0otRr6JOrKImF   ← reference workbook (fixed)
 ```
 
