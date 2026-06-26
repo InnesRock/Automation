@@ -22,6 +22,7 @@ import os
 import re
 import sys
 import time
+import urllib.request
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -50,6 +51,7 @@ SHEET_PUBLIC_URL = (
     "1xgVyk1VOSiLeJjt7BKE9hqlO_Cp3_RYYZzPrAO6_6JQ"
     "/edit?gid=1497414736#gid=1497414736"
 )
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "")
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets.readonly",
@@ -394,6 +396,34 @@ def retry(fn, *args, retries=2, delay=30, **kwargs):
                 raise
 
 
+def post_slack_summary(stats, today):
+    webhook_url = SLACK_WEBHOOK_URL
+    if not webhook_url:
+        return
+    total = stats["creates"] + stats["updates"]
+    if total == 0:
+        text = f"*NBCU Calendar Sync* — {today}\nNo changes needed, calendar already in sync. :white_check_mark:"
+    else:
+        lines = [f"*NBCU Calendar Sync* — {today} :calendar:"]
+        if stats["creates"]:
+            lines.append(f"• :new: {stats['creates']} event(s) created")
+        if stats["updates"]:
+            lines.append(f"• :pencil2: {stats['updates']} event(s) updated")
+        lines.append("• :no_entry_sign: 0 deleted")
+        text = "\n".join(lines)
+    payload = json.dumps({"text": text}).encode()
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        urllib.request.urlopen(req, timeout=10)
+        print("  Slack notification sent.")
+    except Exception as e:
+        print(f"  Slack notification failed: {e}")
+
+
 def run_sync(dry_run=False, lookback_days=14, lookahead_days=120):
     today        = date.today()
     window_start = today - timedelta(days=lookback_days)
@@ -479,6 +509,8 @@ def run_sync(dry_run=False, lookback_days=14, lookahead_days=120):
             if result:
                 affected_links.append(result.get("htmlLink", ""))
 
+    stats = {"updates": n_updates, "creates": n_creates, "deletes": 0}
+
     total_changes = n_updates + n_creates
     print("\n" + "-" * 60)
     if total_changes == 0:
@@ -497,7 +529,10 @@ def run_sync(dry_run=False, lookback_days=14, lookahead_days=120):
     print(f"Sheet: {SHEET_PUBLIC_URL}")
     print("-" * 60)
 
-    return {"updates": n_updates, "creates": n_creates, "deletes": 0}
+    if not dry_run:
+        post_slack_summary(stats, today)
+
+    return stats
 
 
 if __name__ == "__main__":
