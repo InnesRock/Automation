@@ -18,10 +18,13 @@ jobs:
       - name: Install dependencies
         run: pip install -r nbcu_sync/requirements.txt
 
-      - name: Write service account key
-        run: echo '${{ secrets.GOOGLE_SA_JSON }}' > /tmp/sa.json
+      - name: Write OAuth credentials
+        run: |
+          echo '${{ secrets.GOOGLE_OAUTH_CREDENTIALS }}' > /tmp/credentials.json
+          echo '${{ secrets.GOOGLE_OAUTH_TOKEN }}' > /tmp/token.json
 
       - name: Run sync
         env:
-          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+          GOOGLE_OAUTH_CREDENTIALS: /tmp/credentials.json
+          GOOGLE_OAUTH_TOKEN: /tmp/token.json
         run: python nbcu_sync/nbcu_sync.py
