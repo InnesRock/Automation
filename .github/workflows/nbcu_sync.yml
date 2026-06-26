@@ -1,0 +1,27 @@
+name: NBCU Calendar Sync
+
+on:
+  schedule:
+    - cron: '0 1 * * 2'   # Every Tuesday 01:00 UTC
+  workflow_dispatch:        # Allow manual trigger from GitHub UI
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r nbcu_sync/requirements.txt
+
+      - name: Write service account key
+        run: echo '${{ secrets.GOOGLE_SA_JSON }}' > /tmp/sa.json
+
+      - name: Run sync
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: /tmp/sa.json
+        run: python nbcu_sync/nbcu_sync.py
