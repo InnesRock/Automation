@@ -1,0 +1,33 @@
+name: Disney Calendar Sync
+
+on:
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r disney_sync/requirements.txt
+
+      - name: Write OAuth credentials
+        run: |
+          echo "$GOOGLE_OAUTH_CREDENTIALS" > /tmp/credentials.json
+          echo "$GOOGLE_OAUTH_TOKEN"       > /tmp/token.json
+        env:
+          GOOGLE_OAUTH_CREDENTIALS: ${{ secrets.GOOGLE_OAUTH_CREDENTIALS }}
+          GOOGLE_OAUTH_TOKEN:       ${{ secrets.GOOGLE_OAUTH_TOKEN }}
+
+      - name: Run Disney sync
+        run: python disney_sync/disney_sync.py
+        env:
+          GOOGLE_OAUTH_CREDENTIALS: /tmp/credentials.json
+          GOOGLE_OAUTH_TOKEN:       /tmp/token.json
+          SLACK_WEBHOOK_URL:        ${{ secrets.SLACK_WEBHOOK_URL }}
