@@ -4,8 +4,8 @@ description: >
   Runs the weekly WBD Digital Calendar vs Release Schedule reconciliation. Use this skill
   immediately whenever the user uploads a file with "Digital Calendar" or "WBD" in the name,
   or asks to "check the DC", "run the reconciliation", "compare against the RS", "DC check",
-  or "reconcile the digital calendar". The skill writes fresh RS data from sync_sources at
-  the start of every run — never uses cached data — then runs the Python comparison script
+  or "reconcile the digital calendar". The skill fetches fresh RS data from Google Drive
+  at the start of every run — never uses cached data — then runs the Python comparison script
   and reports mismatches. Do not ask clarifying questions; start the workflow immediately.
 ---
 
@@ -16,23 +16,24 @@ Release Schedule (RS) from Google Sheets, flagging date mismatches and missing t
 
 ---
 
-## Step 1 — Write fresh RS data from sync_sources
+## Step 1 — Fetch fresh RS data from Google Drive
 
 **Do this first, before anything else, on every single run. Never reuse a cached `rs_newreleases.csv`.**
 
-The RS Google Sheet is connected as a sync source and its content is injected into the
-session context at startup. Find that data in the context — it will be a block of CSV-like
-rows from the "New Releases" sheet.
+Use the Google Drive connector to read the "New Releases" sheet from the RS Google Sheet:
 
-Write ALL of those rows verbatim to the outputs folder as `rs_newreleases.csv` using the
-Write tool (Mac-side path). Include a header row:
+- **Spreadsheet ID:** `1ParrlYViu0ii8lP1xNe_TYrvR2obLK0ljyCvB9LGqLQ`
+- **Sheet tab:** "New Releases" (gid=114630171)
+
+Fetch all rows from that sheet. Then write ALL rows verbatim to the outputs folder as
+`rs_newreleases.csv`. Include a header row:
 
 ```
 go_live,vendor_id,title,type,release_type,col5,col6,est_launch,col8,vod_launch
 ```
 
-**Critical:** write every row you can see in the sync_sources data — do not cherry-pick or
-manually select a subset. Missing even one row will cause false "MISSING FROM RS" flags.
+**Critical:** write every row returned — do not cherry-pick or manually select a subset.
+Missing even one row will cause false "MISSING FROM RS" flags.
 The comparison script filters to relevant release types automatically.
 
 The CSV must preserve the RS column order exactly:
