@@ -16,6 +16,29 @@ Release Schedule (RS) from Google Sheets, flagging date mismatches and missing t
 
 ---
 
+## Step 0 — Locate the DC file
+
+**If the user has not uploaded a file**, search the WBD DC Inbox Drive folder for the
+most recent Digital Calendar attachment saved there by the Gmail→Drive script:
+
+```
+Tool: mcp__Google_Drive__search_files
+folderId: 1c9w7H0TeVEDg3hH9rw0dI0d8_vcU7tG5
+```
+
+Take the file with the latest `modifiedTime` whose name contains "Digital Calendar"
+or "WBD". Download it:
+
+```
+Tool: mcp__Google_Drive__download_file_content
+fileId: <id from above>
+```
+
+Save the binary content to the uploads folder so the reconciliation script can read it
+as an xlsx. If no file is found in Drive, ask the user to upload the DC file manually.
+
+---
+
 ## Step 1 — Fetch fresh RS data from Google Drive
 
 **Do this first, before anything else, on every single run. Never reuse a cached `rs_newreleases.csv`.**
