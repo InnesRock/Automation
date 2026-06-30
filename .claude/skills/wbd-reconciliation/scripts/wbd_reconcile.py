@@ -2,25 +2,26 @@
 WBD Digital Calendar vs Release Schedule Reconciliation
 ========================================================
 Usage:
-    python3 wbd_reconcile.py <digital_calendar.xlsx> <release_schedule.csv>
+    python3 wbd_reconcile.py <digital_calendar.xlsx> <release_schedule.xlsx|csv>
 
-The release_schedule.csv is exported from the "New Releases" tab of the RS
-Google Sheet. At session start Claude writes this from the sync_sources data.
+The release_schedule can be either:
+  - An XLSX file exported from the RS Google Sheet (preferred — complete data)
+  - A CSV file in the legacy format (kept for backwards compatibility)
 
-RS CSV column order (0-indexed):
-    0: go_live_flag
-    1: vendor_id (optional)
-    2: title
-    3: type (Film/TV/Bundle/4K)
-    4: release_type  (Premium | Premium Reprice | Standard | Pre-Order | 4K Release)
-    5: col5
-    6: col6
-    7: EST Launch Date  (DD/MM/YYYY)
-    8: col8
-    9: VOD Launch Date  (DD/MM/YYYY or blank)
-    ...
+RS Google Sheet column order (0-indexed, "New Releases" tab):
+    0: MVPD check (go_live flag)
+    1: Vendor ID
+    2: Upcoming Releases (title)
+    3: Type (Film/TV/Bundle/4K)
+    4: Release type  — TRUE = Premium, FALSE = Standard
+                       (legacy text values "Premium"/"Standard" also accepted)
+    5: Pre-Order (Home Ent date)
+    6: 4K Release
+    7: EST Launch Date  (date object from XLSX, or DD/MM/YYYY string from CSV)
+    8: EST Launch Covered
+    9: VOD Launch Date  (date object from XLSX, DD/MM/YYYY string, or blank)
 
-DC column order (0-indexed):
+DC column order (0-indexed, xlsx):
     0: title
     2: PEST  (MM/DD/YYYY text)
     4: PVOD  (MM/DD/YYYY text)
@@ -31,17 +32,20 @@ Rules:
     - PEST/PVOD in DC must match each other
     - PEST/PVOD in DC -> RS Premium EST/VOD
     - EST/VOD  in DC -> RS Standard EST/VOD
-    - Only "Premium" rows (not "Premium Reprice") match PEST/PVOD
-    - Only "Standard" rows match EST/VOD
+    - Only "Premium" rows (TRUE) match PEST/PVOD
+    - Only "Standard" rows (FALSE) match EST/VOD
     - Flag DC entries missing from RS entirely
 """
 
 import sys
 import csv
 import openpyxl
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import re
 from collections import defaultdict
+
+# Only reconcile entries where at least one date is within this window
+LOOKBACK_DAYS = 28
 
 
 # ---------------------------------------------------------------------------
@@ -63,13 +67,48 @@ def parse_dc_date(v):
 
 
 def parse_rs_date(v):
-    """RS CSV dates are DD/MM/YYYY."""
-    if not v or not str(v).strip():
+    """RS dates: date/datetime objects from XLSX, or DD/MM/YYYY strings from CSV."""
+    if v is None:
+        return None
+    if isinstance(v, datetime):
+        return v.date()
+    if isinstance(v, date):
+        return v
+    s = str(v).strip()
+    if not s or s.upper() == 'N/A':
         return None
     try:
-        return datetime.strptime(str(v).strip(), '%d/%m/%Y').date()
+        return datetime.strptime(s, '%d/%m/%Y').date()
     except ValueError:
         return None
+
+
+# ---------------------------------------------------------------------------
+# Release type mapping
+# ---------------------------------------------------------------------------
+
+def map_release_type(raw):
+    """
+    Maps the RS Release type column to 'Premium' or 'Standard'.
+    The column now stores Python booleans (True/False) or the strings
+    'TRUE'/'FALSE' from a Google Sheets checkbox. Legacy text values
+    'Premium' and 'Standard' are also accepted for backwards compatibility.
+    """
+    if raw is True:
+        return 'Premium'
+    if raw is False:
+        return 'Standard'
+    if isinstance(raw, str):
+        s = raw.strip().upper()
+        if s == 'TRUE':
+            return 'Premium'
+        if s == 'FALSE':
+            return 'Standard'
+        if raw.strip() == 'Premium':
+            return 'Premium'
+        if raw.strip() == 'Standard':
+            return 'Standard'
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -94,15 +133,47 @@ def normalize_loose(s):
 
 
 # ---------------------------------------------------------------------------
-# Load RS from CSV
+# Load RS from XLSX (preferred — reads "New Releases" tab directly, no truncation)
 # ---------------------------------------------------------------------------
 
-def load_rs(csv_path):
-    """
-    Returns dict: norm_title -> {release_type -> list of {row, est, vod, title}}
-    Only includes rows with release_type in: Premium, Standard
-    (Pre-Order and Premium Reprice are ignored for date-matching purposes)
-    """
+def load_rs_xlsx(xlsx_path):
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+
+    # Find the "New Releases (2026-)" sheet (or any tab whose name starts with "New Releases")
+    ws = None
+    for name in wb.sheetnames:
+        if name.lower().startswith('new release'):
+            ws = wb[name]
+            break
+    if ws is None:
+        ws = wb.active
+        print(f"Warning: 'New Releases' sheet not found — using '{ws.title}'", file=sys.stderr)
+
+    rs = defaultdict(lambda: defaultdict(list))
+    for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True)):
+        if not row or len(row) < 10:
+            continue
+        title = row[2]
+        if not title or not str(title).strip():
+            continue
+        title = str(title).strip()
+        rtype = map_release_type(row[4])
+        if rtype not in ('Premium', 'Standard'):
+            continue
+        est = parse_rs_date(row[7])
+        vod = parse_rs_date(row[9])
+        entry = {'row': i + 2, 'est': est, 'vod': vod, 'title': title}
+        for key in set([normalize(title), normalize_loose(title)]):
+            rs[key][rtype].append(entry)
+
+    return rs
+
+
+# ---------------------------------------------------------------------------
+# Load RS from CSV (legacy fallback)
+# ---------------------------------------------------------------------------
+
+def load_rs_csv(csv_path):
     rs = defaultdict(lambda: defaultdict(list))
 
     with open(csv_path, newline='', encoding='utf-8-sig') as f:
@@ -111,7 +182,7 @@ def load_rs(csv_path):
             if len(row) < 10:
                 continue
             title = row[2].strip()
-            rtype = row[4].strip()
+            rtype = map_release_type(row[4].strip())
             if not title or rtype not in ('Premium', 'Standard'):
                 continue
             est = parse_rs_date(row[7])
@@ -123,6 +194,12 @@ def load_rs(csv_path):
     return rs
 
 
+def load_rs(path):
+    if path.lower().endswith(('.xlsx', '.xls')):
+        return load_rs_xlsx(path)
+    return load_rs_csv(path)
+
+
 # ---------------------------------------------------------------------------
 # Load DC from XLSX
 # ---------------------------------------------------------------------------
@@ -130,7 +207,9 @@ def load_rs(csv_path):
 def load_dc(xlsx_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
+    cutoff = date.today() - timedelta(days=LOOKBACK_DAYS)
     entries = []
+    skipped = 0
     for row in ws.iter_rows(min_row=2, values_only=True):
         title = row[0]
         if not title or not str(title).strip():
@@ -139,13 +218,20 @@ def load_dc(xlsx_path):
         pvod = parse_dc_date(row[4])
         est  = parse_dc_date(row[6])
         vod  = parse_dc_date(row[8])
-        if not any([pest, pvod, est, vod]):
+        dates = [d for d in [pest, pvod, est, vod] if d is not None]
+        if not dates:
+            continue
+        # Skip entries where every date is older than the lookback window
+        if max(dates) < cutoff:
+            skipped += 1
             continue
         entries.append({
             'title': str(title).strip(),
             'pest': pest, 'pvod': pvod,
             'est': est,  'vod': vod,
         })
+    if skipped:
+        print(f"Skipped {skipped} DC entries with all dates older than {LOOKBACK_DAYS} days (before {cutoff})")
     return entries
 
 
@@ -162,7 +248,6 @@ def reconcile(dc_entries, rs):
         nk = normalize(title)
         nk_loose = normalize_loose(title)
 
-        # Find RS match
         rs_data = rs.get(nk) or rs.get(nk_loose)
 
         if rs_data is None:
@@ -213,7 +298,6 @@ def reconcile(dc_entries, rs):
                 issues.append(f"NO STANDARD ROW IN RS — {title}")
                 entry_ok = False
             else:
-                # If multiple Standard rows, prefer the one whose EST matches DC
                 if len(standard_rows) > 1:
                     exact = [r for r in standard_rows if r['est'] == dc['est']]
                     standard_rows = exact if exact else [
@@ -251,7 +335,7 @@ def reconcile(dc_entries, rs):
 
 def main():
     if len(sys.argv) != 3:
-        print("Usage: python3 wbd_reconcile.py <digital_calendar.xlsx> <release_schedule.csv>")
+        print("Usage: python3 wbd_reconcile.py <digital_calendar.xlsx> <release_schedule.xlsx|csv>")
         sys.exit(1)
 
     dc_path = sys.argv[1]
@@ -263,8 +347,11 @@ def main():
     dc_entries = load_dc(dc_path)
     rs = load_rs(rs_path)
 
+    premium_count = sum(len(v.get('Premium', [])) for v in rs.values())
+    standard_count = sum(len(v.get('Standard', [])) for v in rs.values())
     print(f"\nDC entries: {len(dc_entries)}")
-    print(f"RS Premium+Standard rows loaded: {sum(len(v['Premium']) + len(v['Standard']) for v in rs.values()) // 2}")
+    print(f"RS Premium rows loaded:  {premium_count // max(1, 1)}")
+    print(f"RS Standard rows loaded: {standard_count // max(1, 1)}")
 
     passed, issues = reconcile(dc_entries, rs)
 
