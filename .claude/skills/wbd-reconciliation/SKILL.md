@@ -27,52 +27,71 @@ folderId: 1c9w7H0TeVEDg3hH9rw0dI0d8_vcU7tG5
 ```
 
 Take the file with the latest `modifiedTime` whose name contains "Digital Calendar"
-or "WBD". Download it:
+or "WBD". Download it as XLSX:
 
 ```
 Tool: mcp__Google_Drive__download_file_content
 fileId: <id from above>
+exportMimeType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 ```
 
-Save the binary content to the uploads folder so the reconciliation script can read it
-as an xlsx. If no file is found in Drive, ask the user to upload the DC file manually.
+The tool returns a base64-encoded binary. Decode it and write the bytes to the uploads
+folder as a `.xlsx` file so the reconciliation script can open it.
+
+**If the user provides a Google Sheets URL for the DC**, extract the file ID from the URL
+(the segment between `/d/` and `/edit`) and download it the same way using
+`download_file_content` with the XLSX export MIME type.
+
+If no file is found in Drive and no URL is provided, ask the user to upload the DC file
+manually.
 
 ---
 
-## Step 1 — Fetch fresh RS data from Google Drive
+## Step 1 — Fetch fresh RS data from Google Drive as XLSX
 
-**Do this first, before anything else, on every single run. Never reuse a cached `rs_newreleases.csv`.**
+**Do this first, before anything else, on every single run.**
 
-Use the Google Drive connector to read the "New Releases" sheet from the RS Google Sheet:
+**⚠️ Do NOT use `read_file_content` for the RS sheet.** That tool truncates large
+spreadsheets and only returns data through the end of 2023 — missing all 2024–2026
+rows and causing false "MISSING FROM RS" flags for every recent title.
 
-- **Spreadsheet ID:** `1ParrlYViu0ii8lP1xNe_TYrvR2obLK0ljyCvB9LGqLQ`
-- **Sheet tab:** "New Releases" (gid=114630171)
-
-Fetch all rows from that sheet. Then write ALL rows verbatim to the outputs folder as
-`rs_newreleases.csv`. Include a header row:
+Instead, download the full RS spreadsheet as XLSX:
 
 ```
-go_live,vendor_id,title,type,release_type,col5,col6,est_launch,col8,vod_launch
+Tool: mcp__Google_Drive__download_file_content
+fileId: 1ParrlYViu0ii8lP1xNe_TYrvR2obLK0ljyCvB9LGqLQ
+exportMimeType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 ```
 
-**Critical:** write every row returned — do not cherry-pick or manually select a subset.
-Missing even one row will cause false "MISSING FROM RS" flags.
-The comparison script filters to relevant release types automatically.
+The tool returns a base64-encoded binary. Decode it and write the bytes to the outputs
+folder as `rs_newreleases.xlsx`:
 
-The CSV must preserve the RS column order exactly:
+```bash
+python3 -c "
+import base64, sys
+data = '''<paste base64 string here>'''
+with open('/path/to/outputs/rs_newreleases.xlsx', 'wb') as f:
+    f.write(base64.b64decode(data))
+"
+```
+
+The reconciliation script reads the **"New Releases (2026-)"** sheet tab directly from the
+XLSX using openpyxl — no CSV conversion needed. This provides complete data with no truncation.
+
+**RS "New Releases" tab column layout (0-indexed):**
 
 | Index | Field |
 |-------|-------|
-| 0 | go_live flag |
-| 1 | vendor_id |
-| 2 | title |
-| 3 | type (Film / TV / Bundle / 4K) |
-| 4 | release_type |
-| 5 | col5 |
-| 6 | col6 |
-| 7 | EST Launch Date (DD/MM/YYYY) |
-| 8 | col8 |
-| 9 | VOD Launch Date (DD/MM/YYYY or blank) |
+| 0 | MVPD check (go_live flag) |
+| 1 | Vendor ID |
+| 2 | Upcoming Releases (title) |
+| 3 | Type (Film / TV / Bundle / 4K) |
+| 4 | Release type — **TRUE = Premium, FALSE = Standard** |
+| 5 | Pre-Order (Home Ent date) |
+| 6 | 4K Release flag |
+| 7 | EST Launch Date (date object) |
+| 8 | EST Launch Covered |
+| 9 | VOD Launch Date (date object or blank) |
 
 ---
 
@@ -92,7 +111,7 @@ cp <skill_dir>/scripts/wbd_reconcile.py /sessions/.../mnt/outputs/wbd_reconcile.
 ```bash
 python3 /sessions/.../mnt/outputs/wbd_reconcile.py \
   "/sessions/.../mnt/uploads/<DC_filename>.xlsx" \
-  "/sessions/.../mnt/outputs/rs_newreleases.csv"
+  "/sessions/.../mnt/outputs/rs_newreleases.xlsx"
 ```
 
 Use the actual session paths from the environment.
@@ -112,8 +131,8 @@ Keep it concise — no need to list every passing title unless the user asks.
 
 | DC field | Checked against | RS release_type |
 |----------|-----------------|-----------------|
-| PEST, PVOD | RS EST Launch Date, VOD Launch Date | `Premium` only (not "Premium Reprice") |
-| EST, VOD | RS EST Launch Date, VOD Launch Date | `Standard` only |
+| PEST, PVOD | RS EST Launch Date, VOD Launch Date | `Premium` only (Release type = TRUE) |
+| EST, VOD | RS EST Launch Date, VOD Launch Date | `Standard` only (Release type = FALSE) |
 
 Additional flags:
 - PEST ≠ PVOD in DC → flag internal DC mismatch.
@@ -141,6 +160,8 @@ Additional flags:
 ## Project notes
 
 - RS Google Sheet: `https://docs.google.com/spreadsheets/d/1ParrlYViu0ii8lP1xNe_TYrvR2obLK0ljyCvB9LGqLQ/`
-- Sheet tab: "New Releases" (gid=114630171)
-- The DC is uploaded fresh each week by the user.
+- Sheet tab: "New Releases (2026-)" (gid=114630171)
+- The DC is provided by the user each week (uploaded XLSX, Drive file, or Google Sheets URL).
 - `wbd_reconcile.py` is bundled in `scripts/` within this skill directory.
+- **Never use `read_file_content` for the RS** — it truncates the sheet at ~2023 data.
+  Always use `download_file_content` with `exportMimeType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
