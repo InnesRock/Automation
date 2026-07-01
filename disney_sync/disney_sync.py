@@ -260,6 +260,8 @@ def post_slack_summary(stats, today):
                     lines.append(f"• {d_str}: added — `{t}`")
                 for t in entry.get("removed", []):
                     lines.append(f"• {d_str}: removed — `{t}`")
+                if entry.get("regions_changed"):
+                    lines.append(f"• {d_str}: regions changed")
         if stats.get("create_log"):
             lines.append("\n*Created:*")
             for entry in stats["create_log"]:
@@ -346,9 +348,13 @@ def run_sync(dry_run=False, output_json=None):
                 old_titles = extract_titles(current_desc)
                 added   = sorted(new_titles - old_titles)
                 removed = sorted(old_titles - new_titles)
+                regions_changed = not added and not removed
                 retry(update_event, cal_svc, existing["id"], d, new_desc, dry_run)
                 n_updates += 1
-                update_log.append({"date": d, "added": added, "removed": removed})
+                update_log.append({
+                    "date": d, "added": added, "removed": removed,
+                    "regions_changed": regions_changed,
+                })
         else:
             retry(create_event, cal_svc, d, new_desc, dry_run)
             n_creates += 1
