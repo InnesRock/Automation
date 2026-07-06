@@ -48,12 +48,22 @@ SCOPES = [
     "https://www.googleapis.com/auth/calendar",
 ]
 
-# Column indices (0-based)
+# Column indices (0-based). Fallbacks used only if the header row can't be matched by name.
 COL_TITLE        = 2   # "Upcoming Releases"
 COL_TYPE         = 3   # Film / TV / Bundle
 COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release
-COL_EST          = 7   # EST Launch Date
-COL_VOD          = 9   # VOD Launch Date
+COL_EST          = 5   # EST Launch Date
+COL_VOD          = 7   # VOD Launch Date
+
+# Header label -> fallback constant, used to re-resolve columns by name each run
+# so a reordered/inserted sheet column doesn't silently point at the wrong data.
+HEADER_COLUMNS = {
+    "upcoming releases": "COL_TITLE",
+    "type": "COL_TYPE",
+    "release type": "COL_RELEASE_TYPE",
+    "est launch date": "COL_EST",
+    "vod launch date": "COL_VOD",
+}
 
 RELEASE_TYPE_ORDER = {
     "Pre-Order": 1, "Premium": 2, "Premium Reprice": 3, "Standard": 4, "4K Release": 5,
@@ -160,19 +170,39 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
     skip_log = []
     n_total = 0
 
-    # Find the header row (look for "Upcoming Releases" in col 2)
+    # Find the header row (look for "Upcoming Releases" in col 2) and resolve
+    # column indices by matching header labels, rather than trusting fixed
+    # indices — an inserted/reordered sheet column would otherwise silently
+    # point every lookup at the wrong data.
     data_start = 0
+    header_row = None
     for i, row in enumerate(rows[:10]):
         cell = get_cell(row, COL_TITLE).lower()
         if "upcoming" in cell or "release" in cell or "title" in cell:
             data_start = i + 1
+            header_row = row
             break
+
+    col_title, col_type, col_release_type, col_est, col_vod = (
+        COL_TITLE, COL_TYPE, COL_RELEASE_TYPE, COL_EST, COL_VOD,
+    )
+    if header_row is not None:
+        resolved = {}
+        for idx, cell in enumerate(header_row):
+            key = str(cell).strip().lower()
+            if key in HEADER_COLUMNS:
+                resolved[HEADER_COLUMNS[key]] = idx
+        col_title        = resolved.get("COL_TITLE", COL_TITLE)
+        col_type         = resolved.get("COL_TYPE", COL_TYPE)
+        col_release_type = resolved.get("COL_RELEASE_TYPE", COL_RELEASE_TYPE)
+        col_est          = resolved.get("COL_EST", COL_EST)
+        col_vod          = resolved.get("COL_VOD", COL_VOD)
 
     data_rows = rows[data_start:]
 
     for i, row in enumerate(data_rows):
         row_num = data_start + i + 1  # 1-based for display
-        title = get_cell(row, COL_TITLE)
+        title = get_cell(row, col_title)
 
         if not title:
             if verbose:
@@ -180,8 +210,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             continue
 
         n_total += 1
-        content_type = get_cell(row, COL_TYPE)
-        release_type = get_cell(row, COL_RELEASE_TYPE)
+        content_type = get_cell(row, col_type)
+        release_type = get_cell(row, col_release_type)
 
         # Blank release type + TV → Standard
         if not release_type and content_type.lower() == "tv":
@@ -191,8 +221,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             skip_log.append((row_num, title, f"blank release type (Type={content_type!r})"))
             continue
 
-        est_date = parse_date(get_cell(row, COL_EST))
-        vod_date = parse_date(get_cell(row, COL_VOD))
+        est_date = parse_date(get_cell(row, col_est))
+        vod_date = parse_date(get_cell(row, col_vod))
 
         if est_date is None and vod_date is None:
             skip_log.append((row_num, title, "no valid EST or VOD date"))
