@@ -68,7 +68,8 @@ ROW_PATTERN = re.compile(
     r'([\d.]+),([\d.]+),([\d.]+)'     # 10-12 CA SD / HD / UHD SRP
 )
 
-# Output column headers — must match the looper_format sheet exactly
+# Output column headers — must match the looper_format sheet exactly.
+# License Type is a constant 'EST' (the source is entirely EST SRP pricing).
 HEADERS = [
     'Platform Name',
     'Territory ISO Code',
@@ -82,21 +83,36 @@ HEADERS = [
     'MPM',
 ]
 
+# Tokens that look like MPMs in the text but are actually header/label words
+_MPM_SKIP = {'Vendor', 'Title', 'USD', 'CAD', 'SRP', 'TPR', 'EST', 'UHD',
+             'SD', 'HD', 'US', 'CA', 'START', 'END', 'DATE', 'PARTNER',
+             'PRODUCT', 'NAME', 'ID', 'TERRITORY', 'FORMAT'}
+
 
 def _parse_date(date_str: str) -> str:
-    """Convert M/D/YYYY → YYYY-MM-DD."""
+    """Convert M/D/YYYY -> YYYY-MM-DD."""
     return datetime.strptime(date_str.strip(), '%m/%d/%Y').strftime('%Y-%m-%d')
 
 
 def _load_ref_mpms(ref_text: str) -> set:
     """
-    Extract valid MPMs from the title list CSV.
-    Expects the first column to be Vendor Identifier (MPM).
+    Extract the set of valid MPMs from the 'title list' section of the
+    reference workbook text.  Returns an empty set if the section is not
+    found (non-fatal — unknown MPM check is skipped).
     """
-    import csv, io
-    reader = csv.reader(io.StringIO(ref_text))
-    next(reader, None)  # skip header row
-    return {row[0].strip() for row in reader if row and row[0].strip()}
+    marker = 'title list '
+    idx = ref_text.find(marker)
+    if idx == -1:
+        return set()
+    title_section = ref_text[idx + len(marker):]
+    # MPMs appear as the first comma-separated token on each row, e.g.:
+    #   " ABC123,Some Title Name"
+    mpm_pat = re.compile(r'(?:^| )([A-Z0-9]{3,8}),')
+    return {
+        m.group(1)
+        for m in mpm_pat.finditer(title_section)
+        if m.group(1) not in _MPM_SKIP
+    }
 
 
 def transform(src_text: str, ref_text: str, output_path: str) -> dict:
@@ -117,7 +133,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
     ref_mpms = _load_ref_mpms(ref_text)
 
     rows = []
-    unknown_mpms: dict = {}  # mpm -> title
+    unknown_mpms: set = set()
     unknown_platforms: set = set()
     skipped_rows = 0
 
@@ -141,7 +157,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
 
         # Flag MPMs not in the reference list
         if ref_mpms and mpm not in ref_mpms:
-            unknown_mpms[mpm] = title
+            unknown_mpms.add(mpm)
 
         # Emit one output row per non-zero price
         row_emitted = False
@@ -150,16 +166,16 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
                 continue
             row_emitted = True
             rows.append([
-                platform,
-                territory,
-                'EST',
-                title,
-                start_date,
-                end_date,
-                fmt,
-                f'{float(price_str):.2f}',
-                '-',
-                mpm,
+                platform,                   # Platform Name
+                territory,                  # Territory ISO Code
+                'EST',                      # License Type (constant)
+                title,                      # Product Name
+                start_date,                 # Promo Start Date
+                end_date,                   # Promo End Date
+                fmt,                        # Product Format
+                f'{float(price_str):.2f}',  # Retail Price (text string)
+                '-',                        # Promoted Price
+                mpm,                        # MPM
             ])
 
         if not row_emitted:
@@ -176,29 +192,17 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
     for row in rows:
         ws.append(row)
 
-    # Apply text number format to Retail Price (col 7) and MPM (col 10)
+    # Apply text number format to Retail Price (col 8) and MPM (col 10)
     # so Excel doesn't reinterpret them as numbers.
     for row_cells in ws.iter_rows(min_row=2):
-        row_cells[7].number_format = '@'   # Retail Price  (0-indexed → col 7)
-        row_cells[9].number_format = '@'   # MPM           (0-indexed → col 10)
+        row_cells[7].number_format = '@'   # Retail Price  (0-indexed -> col 8)
+        row_cells[9].number_format = '@'   # MPM           (0-indexed -> col 10)
 
     wb.save(output_path)
 
-    # Write unknown MPMs CSV if any
-    csv_path = None
-    if unknown_mpms:
-        import csv
-        csv_path = output_path.replace('.xlsx', '_unknown_mpms.csv')
-        with open(csv_path, 'w', newline='') as cf:
-            writer = csv.writer(cf)
-            writer.writerow(['MPM', 'Title'])
-            for mpm, title in sorted(unknown_mpms.items()):
-                writer.writerow([mpm, title])
-
     return {
         'output_rows':       len(rows),
-        'unknown_mpms':      sorted(unknown_mpms.keys()),
-        'unknown_mpms_csv':  csv_path,
+        'unknown_mpms':      sorted(unknown_mpms),
         'unknown_platforms': sorted(unknown_platforms),
         'skipped_rows':      skipped_rows,
     }
