@@ -123,17 +123,17 @@ Any PARTNER not in this map is passed through unchanged and flagged as unknown.
 
 One row per non-zero price point. Columns (in order):
 
-| #  | Column Name        | Notes                                      |
-|----|--------------------|--------------------------------------------|
-| 1  | Platform Name      | Renamed partner                            |
-| 2  | Territory ISO Code | US or CA                                   |
-| 3  | License Type       | Always `EST`                               |
-| 4  | Product Name       | Title, unquoted                            |
-| 5  | Promo Start Date   | ISO 8601 (YYYY-MM-DD)                      |
-| 6  | Promo End Date     | ISO 8601 (YYYY-MM-DD)                      |
-| 7  | Product Format     | SD, HD, or 4K                              |
-| 8  | Retail Price       | `X.XX` string, text-formatted cell         |
-| 9  | Promoted Price     | Always `-` (literal hyphen)                |
-| 10 | MPM                | Product ID, text-formatted cell            |
+| # | Column Name        | Notes                              |
+|---|--------------------|------------------------------------|
+| 1 | Platform Name      | Renamed partner                    |
+| 2 | Territory ISO Code | US or CA                           |
+| 3 | License Type       | Always `EST`                       |
+| 4 | Product Name       | Product name, unquoted             |
+| 5 | Promo Start Date   | ISO 8601 (YYYY-MM-DD)              |
+| 6 | Promo End Date     | ISO 8601 (YYYY-MM-DD)              |
+| 7 | Product Format     | SD, HD, or 4K                      |
+| 8 | Retail Price       | "X.XX" string, text-formatted cell |
+| 9 | Promoted Price     | Always `-` (literal hyphen)        |
+|10 | MPM                | Product ID, text-formatted cell    |
 
 Sheet name: `looper_format`
