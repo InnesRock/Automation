@@ -21,6 +21,8 @@ import time
 import urllib.request
 from collections import defaultdict
 from datetime import date, datetime, timedelta
+from html import escape as html_escape
+from html.parser import HTMLParser
 from zoneinfo import ZoneInfo
 
 try:
@@ -50,10 +52,9 @@ SCOPES = [
 
 # Column indices (0-based). Fallbacks used only if the header row can't be matched by name.
 COL_TITLE        = 2   # "Upcoming Releases"
-COL_TYPE         = 3   # Film / TV / Bundle
+COL_TYPE         = 3   # Film / Bundle / TV
 COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release
-COL_EST          = 5   # EST Launch Date
-COL_VOD          = 7   # VOD Launch Date
+COL_LAUNCH_DATE  = 5   # Launch Date (single EST/VOD-simultaneous date)
 
 # Header label -> fallback constant, used to re-resolve columns by name each run
 # so a reordered/inserted sheet column doesn't silently point at the wrong data.
@@ -61,14 +62,14 @@ HEADER_COLUMNS = {
     "upcoming releases": "COL_TITLE",
     "type": "COL_TYPE",
     "release type": "COL_RELEASE_TYPE",
-    "est launch date": "COL_EST",
-    "vod launch date": "COL_VOD",
+    "launch date": "COL_LAUNCH_DATE",
 }
 
 RELEASE_TYPE_ORDER = {
     "Pre-Order": 1, "Premium": 2, "Premium Reprice": 3, "Standard": 4, "4K Release": 5,
 }
-AVAILABILITY_ORDER = {"EST": 1, "VOD": 2, "EST/VOD": 3}
+TYPE_ORDER  = {"Film": 1, "Bundle": 2, "TV": 3}
+TYPE_HEADER = {"Film": "Films", "Bundle": "Bundles", "TV": "TV"}
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -183,8 +184,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             header_row = row
             break
 
-    col_title, col_type, col_release_type, col_est, col_vod = (
-        COL_TITLE, COL_TYPE, COL_RELEASE_TYPE, COL_EST, COL_VOD,
+    col_title, col_type, col_release_type, col_launch_date = (
+        COL_TITLE, COL_TYPE, COL_RELEASE_TYPE, COL_LAUNCH_DATE,
     )
     if header_row is not None:
         resolved = {}
@@ -195,8 +196,7 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
         col_title        = resolved.get("COL_TITLE", COL_TITLE)
         col_type         = resolved.get("COL_TYPE", COL_TYPE)
         col_release_type = resolved.get("COL_RELEASE_TYPE", COL_RELEASE_TYPE)
-        col_est          = resolved.get("COL_EST", COL_EST)
-        col_vod          = resolved.get("COL_VOD", COL_VOD)
+        col_launch_date  = resolved.get("COL_LAUNCH_DATE", COL_LAUNCH_DATE)
 
     data_rows = rows[data_start:]
 
@@ -221,23 +221,11 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             skip_log.append((row_num, title, f"blank release type (Type={content_type!r})"))
             continue
 
-        est_date = parse_date(get_cell(row, col_est))
-        vod_date = parse_date(get_cell(row, col_vod))
+        release_date = parse_date(get_cell(row, col_launch_date))
 
-        if est_date is None and vod_date is None:
-            skip_log.append((row_num, title, "no valid EST or VOD date"))
+        if release_date is None:
+            skip_log.append((row_num, title, "no valid launch date"))
             continue
-
-        # Availability
-        if est_date and vod_date:
-            availability = "EST/VOD"
-            release_date = min(est_date, vod_date)
-        elif est_date:
-            availability = "EST"
-            release_date = est_date
-        else:
-            availability = "VOD"
-            release_date = vod_date
 
         invite_date = get_invite_date(release_date)
 
@@ -249,8 +237,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
 
         plan[invite_date].append({
             "title": title,
+            "type": content_type,
             "release_type": release_type,
-            "availability": availability,
             "release_date": release_date,
             "invite_date": invite_date,
         })
@@ -260,40 +248,37 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
 
 # ── Description builder ───────────────────────────────────────────────────────
 
-def _section_key(entry):
-    rt = RELEASE_TYPE_ORDER.get(entry["release_type"], 99)
-    av = AVAILABILITY_ORDER.get(entry["availability"], 99)
-    return (rt, av)
-
-
-def _section_header(release_type, availability):
-    if release_type == "Premium":
-        return "Premium:"
-    return f"{release_type} {availability}:"
-
-
 def build_description(entries):
-    """Build plain-text event description for a list of entries on the same invite date."""
-    # Group by (release_type, availability)
-    groups = defaultdict(list)
+    """Build event description: a bold summary line, then per Type (bold
+    header, no bullet) a native <ul> bulleted list of Release Type (bulleted,
+    colon-suffixed, underlined) -> Title (nested bulleted), for a list of
+    entries on the same invite date."""
+    by_type = defaultdict(list)
     for e in entries:
-        groups[(e["release_type"], e["availability"])].append(e)
+        by_type[e["type"]].append(e)
 
-    # Sort groups by release_type then availability order
-    sorted_keys = sorted(groups.keys(),
-        key=lambda k: (RELEASE_TYPE_ORDER.get(k[0], 99), AVAILABILITY_ORDER.get(k[1], 99)))
+    type_keys = sorted(by_type.keys(), key=lambda t: TYPE_ORDER.get(t, 99))
 
-    sections = []
-    for key in sorted_keys:
-        rt, av = key
-        header = _section_header(rt, av)
-        group_entries = sorted(groups[key], key=lambda e: (e["release_date"], e["title"]))
-        lines = [header]
-        for e in group_entries:
-            lines.append(f"• {e['title']}")
-        sections.append("\n".join(lines))
+    summary = f"<b>Warner Bros. releases landing today ({len(entries)}):</b>"
+    blocks = []
+    for t in type_keys:
+        by_release_type = defaultdict(list)
+        for e in by_type[t]:
+            by_release_type[e["release_type"]].append(e)
+        rt_keys = sorted(by_release_type.keys(),
+                          key=lambda rt: RELEASE_TYPE_ORDER.get(rt, 99))
 
-    return "\n\n".join(sections)
+        rt_items = []
+        for rt in rt_keys:
+            group_entries = sorted(by_release_type[rt],
+                                    key=lambda e: (e["release_date"], e["title"]))
+            title_items = "".join(
+                f"<li>{html_escape(e['title'])}</li>" for e in group_entries)
+            rt_items.append(f"<li><u>{html_escape(rt)}:</u><ul>{title_items}</ul></li>")
+        blocks.append(f"<b><u>{html_escape(TYPE_HEADER.get(t, t))}</u></b>"
+                       f"<ul>{''.join(rt_items)}</ul>")
+
+    return summary + "<br><br>" + "<br>".join(blocks)
 
 
 # ── Calendar helpers ──────────────────────────────────────────────────────────
@@ -451,15 +436,63 @@ def post_slack_summary(stats, today):
         print(f"  Slack notification failed: {e}")
 
 
+class _LeafListItemExtractor(HTMLParser):
+    """Collects the text of every <li> that has no nested <ul> -- i.e. the
+    leaf (Title) items, not the Release Type items that wrap a nested list."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.stack = []
+        self.titles = set()
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "li":
+            self.stack.append({"has_ul": False, "text": []})
+        elif tag == "ul" and self.stack:
+            self.stack[-1]["has_ul"] = True
+
+    def handle_endtag(self, tag):
+        if tag == "li" and self.stack:
+            frame = self.stack.pop()
+            if not frame["has_ul"]:
+                text = "".join(frame["text"]).strip()
+                if text:
+                    self.titles.add(text)
+
+    def handle_data(self, data):
+        if self.stack:
+            self.stack[-1]["text"].append(data)
+
+
 def _extract_titles_from_description(desc):
-    """Return set of title strings from a plain-text WB event description."""
+    """Return set of title strings from a WB event description.
+
+    Current format nests Title as a <li> with no nested <ul>, under a
+    Release Type <li> that does have one -- parse that structurally.
+
+    Older event descriptions (pre native-list formatting) bulleted lines with
+    a literal "•" instead: titles nested under a Release Type line indented
+    with leading whitespace, or -- oldest of all -- bulleted directly with no
+    indentation at all. Keep parsing those too, so the Slack added/removed
+    changelog stays correct on invites that haven't been touched since.
+    """
     if not desc:
         return set()
+
+    if "<li>" in desc:
+        parser = _LeafListItemExtractor()
+        parser.feed(desc)
+        return parser.titles
+
     titles = set()
     for line in desc.splitlines():
-        line = line.strip()
-        if line.startswith("•"):
-            titles.add(line.lstrip("•").strip())
+        stripped = line.strip()
+        if not stripped.startswith("•"):
+            continue
+        text = stripped.lstrip("•").strip()
+        if not line.startswith((" ", "\t")) and text in RELEASE_TYPE_ORDER:
+            continue
+        titles.add(text)
     return titles
 
 
@@ -563,8 +596,8 @@ def run_sync(dry_run=False, lookback_days=1, lookahead_days=28,
             releases[str(d)] = [
                 {
                     "title": e["title"],
+                    "type": e["type"],
                     "release_type": e["release_type"],
-                    "availability": e["availability"],
                     "release_date": str(e["release_date"]),
                 }
                 for e in entries

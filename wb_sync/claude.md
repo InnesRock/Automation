@@ -49,13 +49,38 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
 
 ## Rules (baked into wb_sync.py)
 - Window: today − 1 day → today + 28 days
-- Columns (0-based): Title=2, Type=3, Release Type=4, EST=7, VOD=9
+- Columns (0-based): Title=2, Type=3 (Film / Bundle / TV), Release Type=4, Launch Date=5
+  - The sheet used to have separate EST/VOD date columns; it's now a single "Launch
+    Date" column (Warner Bros. always launches Film titles EST/VOD simultaneously,
+    and TV/Bundle titles EST-only, so there's nothing left to disambiguate).
+    Availability (EST/VOD) is no longer tracked or shown anywhere downstream.
 - Blank release type + Type=="TV" → treated as "Standard"
-- Skip rows: blank title, no valid EST/VOD date, blank release type (non-TV)
+- Skip rows: blank title, no valid launch date, blank release type (non-TV)
 - Invite date mapping: Sat→Tue(+3), Sun→Tue(+2), Mon→Tue(+1), Tue→Tue, Wed→Wed, Thu→Fri(+1), Fri→Fri
 - Release type order: Pre-Order, Premium, Premium Reprice, Standard, 4K Release
-- Availability order: EST, VOD, EST/VOD
-- Premium section header omits availability (just "Premium:")
+- Type order: Film, Bundle, TV
+- Calendar description layout — grouped Type -> Release Type -> Title, using Google
+  Calendar's native bulleted-list HTML (`<ul>`/`<li>`, not manual "•" characters) so
+  it renders with real disc/circle nested bullets, matching the NBCU calendar's style:
+  ```
+  Warner Bros. releases landing today (5):   (bold summary line, count = all releases that date)
+                                              (blank line)
+  Films                                      (bold + underlined header, no bullet; omitted if no Film titles that date)
+  • Premium:                                 (Release Type, bulleted, colon-suffixed, underlined)
+     o Title A                               (Title, nested bullet, no styling)
+  • Standard:
+     o Title B
+  Bundles                                    (omitted if no Bundle titles that date)
+  ...
+  TV                                         (omitted if no TV titles that date)
+  ...
+  ```
+  Built as real HTML: `<b>...(N):</b><br><br><b><u>Films</u></b><ul><li><u>Premium:</u><ul><li>Title A</li></ul></li>...</ul>`.
+  Titles/release types are HTML-escaped when building this. This is Calendar-only —
+  Confluence pages still use their own native nested `<ul>`/`<li>` bullets (via the
+  Confluence storage format) with no colon/underline, and no summary count line.
+  Confluence Type header uses `<p><strong>...</strong></p>`, same wording/ordering.
 - Deletion: WB Launches events in window with no plan entries are removed
 - Events are silent (no notifications)
 - Slack posts a changelog after each run (added/removed/created/deleted titles per date)
+- `--output-json` entries: `{title, type, release_type, release_date}` (no `availability` field)
