@@ -49,30 +49,34 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
 
 ## Rules (baked into wb_sync.py)
 - Window: today − 1 day → today + 28 days
-- Columns (0-based): Title=2, Type=3 (Film / Bundle / TV), Release Type=4, Launch Date=5
+- Columns (0-based): Title=2, Type=3 (Film / Film Bundle / TV / TV Boxset), Release Type=4, Launch Date=5
   - The sheet used to have separate EST/VOD date columns; it's now a single "Launch
     Date" column (Warner Bros. always launches Film titles EST/VOD simultaneously,
     and TV/Bundle titles EST-only, so there's nothing left to disambiguate).
     Availability (EST/VOD) is no longer tracked or shown anywhere downstream.
-- Blank release type + Type=="TV" → treated as "Standard"
-- Skip rows: blank title, no valid launch date, blank release type (non-TV)
+  - "Film Bundle" and "TV Boxset" each get their own header (Film Bundles / TV
+    Boxsets) -- they are NOT merged into the plain Film/TV headers.
+- Blank release type + Type in ("TV", "TV Boxset") → treated as "Standard"
+- Skip rows: blank title, no valid launch date, blank release type (non-TV/TV Boxset)
 - Invite date mapping: Sat→Tue(+3), Sun→Tue(+2), Mon→Tue(+1), Tue→Tue, Wed→Wed, Thu→Fri(+1), Fri→Fri
 - Release type order: Pre-Order, Premium, Premium Reprice, Standard, 4K Release
-- Type order: Film, Bundle, TV
+- Type order: Film, Film Bundle, TV, TV Boxset -- headers "Films", "Film Bundles", "TV", "TV Boxsets"
 - Calendar description layout — grouped Type -> Release Type -> Title, using Google
   Calendar's native bulleted-list HTML (`<ul>`/`<li>`, not manual "•" characters) so
   it renders with real disc/circle nested bullets, matching the NBCU calendar's style:
   ```
   Warner Bros. releases landing today (5):   (bold summary line, count = all releases that date)
                                               (blank line)
-  Films                                      (bold + underlined header, no bullet; omitted if no Film titles that date)
+  Films                                      (bold + underlined header, no bullet; omitted if no titles of that type that date)
   • Premium:                                 (Release Type, bulleted, colon-suffixed, underlined)
      o Title A                               (Title, nested bullet, no styling)
   • Standard:
      o Title B
-  Bundles                                    (omitted if no Bundle titles that date)
+  Film Bundles
   ...
-  TV                                         (omitted if no TV titles that date)
+  TV
+  ...
+  TV Boxsets
   ...
   ```
   Built as real HTML: `<b>...(N):</b><br><br><b><u>Films</u></b><ul><li><u>Premium:</u><ul><li>Title A</li></ul></li>...</ul>`.

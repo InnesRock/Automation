@@ -52,7 +52,7 @@ SCOPES = [
 
 # Column indices (0-based). Fallbacks used only if the header row can't be matched by name.
 COL_TITLE        = 2   # "Upcoming Releases"
-COL_TYPE         = 3   # Film / Bundle / TV
+COL_TYPE         = 3   # Film / Film Bundle / TV / TV Boxset
 COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release
 COL_LAUNCH_DATE  = 5   # Launch Date (single EST/VOD-simultaneous date)
 
@@ -68,8 +68,8 @@ HEADER_COLUMNS = {
 RELEASE_TYPE_ORDER = {
     "Pre-Order": 1, "Premium": 2, "Premium Reprice": 3, "Standard": 4, "4K Release": 5,
 }
-TYPE_ORDER  = {"Film": 1, "Bundle": 2, "TV": 3}
-TYPE_HEADER = {"Film": "Films", "Bundle": "Bundles", "TV": "TV"}
+TYPE_ORDER  = {"Film": 1, "Film Bundle": 2, "TV": 3, "TV Boxset": 4}
+TYPE_HEADER = {"Film": "Films", "Film Bundle": "Film Bundles", "TV": "TV", "TV Boxset": "TV Boxsets"}
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -213,8 +213,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
         content_type = get_cell(row, col_type)
         release_type = get_cell(row, col_release_type)
 
-        # Blank release type + TV → Standard
-        if not release_type and content_type.lower() == "tv":
+        # Blank release type + TV/TV Boxset → Standard
+        if not release_type and content_type.lower() in ("tv", "tv boxset"):
             release_type = "Standard"
 
         if not release_type:
