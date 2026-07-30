@@ -59,7 +59,12 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
 - Blank release type + Type in ("TV", "TV Boxset") → treated as "Standard"
 - Skip rows: blank title, no valid launch date, blank release type (non-TV/TV Boxset)
 - Invite date mapping: Sat→Tue(+3), Sun→Tue(+2), Mon→Tue(+1), Tue→Tue, Wed→Wed, Thu→Fri(+1), Fri→Fri
-- Release type order: Pre-Order, Premium, Premium Reprice, Standard, 4K Release
+- Release type order: Pre-Order, Premium, Premium Reprice, Standard, 4K Release, EST-only, VOD
+  - EST-only/VOD are ordinary Release Type values (column E), unrelated to the old
+    EST/VOD Availability concept that was removed -- they render exactly like any
+    other Release Type (bulleted, colon-suffixed, underlined, with titles nested
+    underneath), just sorted after 4K Release since there's no stronger signal on
+    where else they'd belong.
 - Type order: Film, Film Bundle, TV, TV Boxset -- headers "Films", "Film Bundles", "TV", "TV Boxsets"
 - Calendar description layout — grouped Type -> Release Type -> Title, using Google
   Calendar's native bulleted-list HTML (`<ul>`/`<li>`, not manual "•" characters) so

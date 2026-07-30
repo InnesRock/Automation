@@ -53,7 +53,7 @@ SCOPES = [
 # Column indices (0-based). Fallbacks used only if the header row can't be matched by name.
 COL_TITLE        = 2   # "Upcoming Releases"
 COL_TYPE         = 3   # Film / Film Bundle / TV / TV Boxset
-COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release
+COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release / EST-only / VOD
 COL_LAUNCH_DATE  = 5   # Launch Date (single EST/VOD-simultaneous date)
 
 # Header label -> fallback constant, used to re-resolve columns by name each run
@@ -67,6 +67,7 @@ HEADER_COLUMNS = {
 
 RELEASE_TYPE_ORDER = {
     "Pre-Order": 1, "Premium": 2, "Premium Reprice": 3, "Standard": 4, "4K Release": 5,
+    "EST-only": 6, "VOD": 7,
 }
 TYPE_ORDER  = {"Film": 1, "Film Bundle": 2, "TV": 3, "TV Boxset": 4}
 TYPE_HEADER = {"Film": "Films", "Film Bundle": "Film Bundles", "TV": "TV", "TV Boxset": "TV Boxsets"}
