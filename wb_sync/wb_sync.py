@@ -51,6 +51,7 @@ SCOPES = [
 ]
 
 # Column indices (0-based). Fallbacks used only if the header row can't be matched by name.
+COL_MVPD_CHECK   = 0   # "Yes" / "No" / "tbc" / blank
 COL_TITLE        = 2   # "Upcoming Releases"
 COL_TYPE         = 3   # Film / Film Bundle / TV / TV Boxset
 COL_RELEASE_TYPE = 4   # Pre-Order / Premium / Premium Reprice / Standard / 4K Release / EST-only / VOD
@@ -59,6 +60,7 @@ COL_LAUNCH_DATE  = 5   # Launch Date (single EST/VOD-simultaneous date)
 # Header label -> fallback constant, used to re-resolve columns by name each run
 # so a reordered/inserted sheet column doesn't silently point at the wrong data.
 HEADER_COLUMNS = {
+    "mvpd check": "COL_MVPD_CHECK",
     "upcoming releases": "COL_TITLE",
     "type": "COL_TYPE",
     "release type": "COL_RELEASE_TYPE",
@@ -185,8 +187,8 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             header_row = row
             break
 
-    col_title, col_type, col_release_type, col_launch_date = (
-        COL_TITLE, COL_TYPE, COL_RELEASE_TYPE, COL_LAUNCH_DATE,
+    col_mvpd_check, col_title, col_type, col_release_type, col_launch_date = (
+        COL_MVPD_CHECK, COL_TITLE, COL_TYPE, COL_RELEASE_TYPE, COL_LAUNCH_DATE,
     )
     if header_row is not None:
         resolved = {}
@@ -194,6 +196,7 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
             key = str(cell).strip().lower()
             if key in HEADER_COLUMNS:
                 resolved[HEADER_COLUMNS[key]] = idx
+        col_mvpd_check   = resolved.get("COL_MVPD_CHECK", COL_MVPD_CHECK)
         col_title        = resolved.get("COL_TITLE", COL_TITLE)
         col_type         = resolved.get("COL_TYPE", COL_TYPE)
         col_release_type = resolved.get("COL_RELEASE_TYPE", COL_RELEASE_TYPE)
@@ -236,12 +239,15 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
                     f"invite date {invite_date} outside window [{window_start}, {window_end}]"))
             continue
 
+        mvpd_check = get_cell(row, col_mvpd_check).strip().lower() == "yes"
+
         plan[invite_date].append({
             "title": title,
             "type": content_type,
             "release_type": release_type,
             "release_date": release_date,
             "invite_date": invite_date,
+            "mvpd_check": mvpd_check,
         })
 
     return plan, skip_log, n_total
@@ -249,11 +255,21 @@ def parse_wb_releases(rows, window_start, window_end, verbose=False):
 
 # ── Description builder ───────────────────────────────────────────────────────
 
+def _title_li(entry):
+    """Title <li>, with a nested "MVPD Check required" sub-bullet when the
+    sheet's MVPD check column is "Yes" for that row."""
+    title_html = html_escape(entry["title"])
+    if entry.get("mvpd_check"):
+        return f"<li>{title_html}<ul><li><i>MVPD Check required</i></li></ul></li>"
+    return f"<li>{title_html}</li>"
+
+
 def build_description(entries):
     """Build event description: a bold summary line, then per Type (bold
     header, no bullet) a native <ul> bulleted list of Release Type (bulleted,
-    colon-suffixed, underlined) -> Title (nested bulleted), for a list of
-    entries on the same invite date."""
+    colon-suffixed, underlined) -> Title (nested bulleted, with an optional
+    "MVPD Check required" sub-bullet), for a list of entries on the same
+    invite date."""
     by_type = defaultdict(list)
     for e in entries:
         by_type[e["type"]].append(e)
@@ -273,10 +289,9 @@ def build_description(entries):
         for rt in rt_keys:
             group_entries = sorted(by_release_type[rt],
                                     key=lambda e: (e["release_date"], e["title"]))
-            title_items = "".join(
-                f"<li>{html_escape(e['title'])}</li>" for e in group_entries)
+            title_items = "".join(_title_li(e) for e in group_entries)
             rt_items.append(f"<li><u>{html_escape(rt)}:</u><ul>{title_items}</ul></li>")
-        blocks.append(f"<b><u>{html_escape(TYPE_HEADER.get(t, t))}</u></b>"
+        blocks.append(f"<b>{html_escape(TYPE_HEADER.get(t, t))}</b>"
                        f"<ul>{''.join(rt_items)}</ul>")
 
     return summary + "<br><br>" + "<br>".join(blocks)
@@ -438,30 +453,37 @@ def post_slack_summary(stats, today):
 
 
 class _LeafListItemExtractor(HTMLParser):
-    """Collects the text of every <li> that has no nested <ul> -- i.e. the
-    leaf (Title) items, not the Release Type items that wrap a nested list."""
+    """Collects the text of every Title <li> -- the one nested two <ul>
+    levels deep (Release Type's list holds Titles), identified by nesting
+    depth rather than "has no children" since a Title may itself wrap a
+    further-nested "MVPD Check required" sub-bullet."""
+
+    TITLE_DEPTH = 2
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
+        self.ul_depth = 0
         self.stack = []
         self.titles = set()
 
     def handle_starttag(self, tag, attrs):
-        if tag == "li":
-            self.stack.append({"has_ul": False, "text": []})
-        elif tag == "ul" and self.stack:
-            self.stack[-1]["has_ul"] = True
+        if tag == "ul":
+            self.ul_depth += 1
+        elif tag == "li":
+            self.stack.append({"open_depth": self.ul_depth, "text": []})
 
     def handle_endtag(self, tag):
-        if tag == "li" and self.stack:
+        if tag == "ul":
+            self.ul_depth -= 1
+        elif tag == "li" and self.stack:
             frame = self.stack.pop()
-            if not frame["has_ul"]:
+            if frame["open_depth"] == self.TITLE_DEPTH:
                 text = "".join(frame["text"]).strip()
                 if text:
                     self.titles.add(text)
 
     def handle_data(self, data):
-        if self.stack:
+        if self.stack and self.ul_depth == self.stack[-1]["open_depth"]:
             self.stack[-1]["text"].append(data)
 
 
@@ -600,6 +622,7 @@ def run_sync(dry_run=False, lookback_days=1, lookahead_days=28,
                     "type": e["type"],
                     "release_type": e["release_type"],
                     "release_date": str(e["release_date"]),
+                    "mvpd_check": e["mvpd_check"],
                 }
                 for e in entries
             ]

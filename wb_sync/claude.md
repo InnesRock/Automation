@@ -49,7 +49,7 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
 
 ## Rules (baked into wb_sync.py)
 - Window: today − 1 day → today + 28 days
-- Columns (0-based): Title=2, Type=3 (Film / Film Bundle / TV / TV Boxset), Release Type=4, Launch Date=5
+- Columns (0-based): MVPD check=0, Title=2, Type=3 (Film / Film Bundle / TV / TV Boxset), Release Type=4, Launch Date=5
   - The sheet used to have separate EST/VOD date columns; it's now a single "Launch
     Date" column (Warner Bros. always launches Film titles EST/VOD simultaneously,
     and TV/Bundle titles EST-only, so there's nothing left to disambiguate).
@@ -72,9 +72,10 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
   ```
   Warner Bros. releases landing today (5):   (bold summary line, count = all releases that date)
                                               (blank line)
-  Films                                      (bold + underlined header, no bullet; omitted if no titles of that type that date)
+  Films                                      (bold header, no bullet; omitted if no titles of that type that date)
   • Premium:                                 (Release Type, bulleted, colon-suffixed, underlined)
      o Title A                               (Title, nested bullet, no styling)
+        ▪ MVPD Check required                (italic; only if that row's MVPD check column == "Yes")
   • Standard:
      o Title B
   Film Bundles
@@ -84,12 +85,20 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
   TV Boxsets
   ...
   ```
-  Built as real HTML: `<b>...(N):</b><br><br><b><u>Films</u></b><ul><li><u>Premium:</u><ul><li>Title A</li></ul></li>...</ul>`.
-  Titles/release types are HTML-escaped when building this. This is Calendar-only —
-  Confluence pages still use their own native nested `<ul>`/`<li>` bullets (via the
-  Confluence storage format) with no colon/underline, and no summary count line.
-  Confluence Type header uses `<p><strong>...</strong></p>`, same wording/ordering.
+  Built as real HTML: `<b>...(N):</b><br><br><b>Films</b><ul><li><u>Premium:</u><ul><li>Title A<ul><li><i>MVPD Check required</i></li></ul></li></ul></li>...</ul>`.
+  Titles/release types are HTML-escaped when building this. Type headers are bold
+  only (no underline) -- only the Release Type line is underlined. The MVPD sub-
+  bullet's italics are Calendar-only (Confluence renders it as plain unstyled text,
+  same as any other bullet); everything else in this layout (native bullets,
+  colon+underline, the MVPD sub-bullet's existence/wording/position) is shared
+  between Calendar and Confluence, with Confluence using its own native nested
+  `<ul>`/`<li>` bullets (Confluence storage format) rather than raw HTML, and no
+  summary count line (that stays Calendar-only). Confluence Type header uses
+  `<p><strong>...</strong></p>`.
+- MVPD check column ("Yes"/"No"/"tbc"/blank, case-insensitive match on "yes") adds a
+  nested "MVPD Check required" sub-bullet directly under that title (italic on
+  Calendar, plain on Confluence) -- nothing else changes for that entry.
 - Deletion: WB Launches events in window with no plan entries are removed
 - Events are silent (no notifications)
 - Slack posts a changelog after each run (added/removed/created/deleted titles per date)
-- `--output-json` entries: `{title, type, release_type, release_date}` (no `availability` field)
+- `--output-json` entries: `{title, type, release_type, release_date, mvpd_check}` (bool; no `availability` field)
