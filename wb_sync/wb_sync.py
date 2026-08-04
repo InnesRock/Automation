@@ -74,6 +74,16 @@ RELEASE_TYPE_ORDER = {
 TYPE_ORDER  = {"Film": 1, "Film Bundle": 2, "TV": 3, "TV Boxset": 4}
 TYPE_HEADER = {"Film": "Films", "Film Bundle": "Film Bundles", "TV": "TV", "TV Boxset": "TV Boxsets"}
 
+# MVPD Check invites -- one per sheet row flagged "MVPD Check required",
+# created on the same date as that row's main invite.
+MVPD_TZ             = "America/New_York"
+MVPD_SUMMARY_PREFIX = "Warner Bros. MVPD Check - "
+MVPD_PLATFORMS      = "DirecTV, Verizon, Xfinity"
+MVPD_PRICING = {
+    "Premium":         {"buy": "$24.99 PEST", "rent": "$19.99 PVOD"},
+    "Premium Reprice": {"buy": "$19.99 PEST", "rent": "$9.99 PVOD"},
+}
+
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -304,6 +314,24 @@ def dt_london(d, hour):
     return datetime(d.year, d.month, d.day, hour, 0, 0, tzinfo=tz).isoformat()
 
 
+def dt_ny(d, hour, minute=0):
+    tz = ZoneInfo(MVPD_TZ)
+    return datetime(d.year, d.month, d.day, hour, minute, 0, tzinfo=tz).isoformat()
+
+
+def _ordinal(n):
+    if 11 <= n % 100 <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def format_long_date(d):
+    """e.g. 4th August 2026"""
+    return f"{_ordinal(d.day)} {d.strftime('%B')} {d.year}"
+
+
 def list_calendar_events(cal_svc, window_start, window_end):
     all_events = []
     page_token = None
@@ -383,13 +411,62 @@ def update_event(cal_svc, event_id, d, description, dry_run):
     return result
 
 
-def delete_event(cal_svc, event_id, d, dry_run):
+def delete_event(cal_svc, event_id, d, dry_run, label=EVENT_SUMMARY):
     if dry_run:
-        print(f"  [DRY-RUN] DELETE  {EVENT_SUMMARY!r} on {d}")
+        print(f"  [DRY-RUN] DELETE  {label!r} on {d}")
         return
     cal_svc.events().delete(calendarId=CALENDAR_ID, eventId=event_id,
                              sendNotifications=False).execute()
-    print(f"  DELETED  {EVENT_SUMMARY!r} on {d}")
+    print(f"  DELETED  {label!r} on {d}")
+
+
+# ── MVPD Check invite ─────────────────────────────────────────────────────────
+
+def build_mvpd_description(entry):
+    title = html_escape(entry["title"])
+    rtype = html_escape(entry["release_type"])
+    pricing = MVPD_PRICING.get(entry["release_type"], {})
+    buy = pricing.get("buy", "")
+    rent = pricing.get("rent", "")
+    date_str = format_long_date(entry["invite_date"])
+
+    lines = [
+        title,
+        f"Platforms: {MVPD_PLATFORMS}",
+        f"Type: {rtype}",
+        f"Expected SRPs: {buy}, {rent}",
+        "",
+        f'Campaign description: Tracking Compliance and Merchandising for "{title}", '
+        f"across the title's Premium and Premium Reprice release windows.",
+        "",
+        "Segment descriptions:",
+        f'Compliance for the {rtype} of "{title}" on {date_str}.',
+        f'Merchandising support for the {rtype} of "{title}" on {date_str}.',
+    ]
+    return "<br>".join(lines)
+
+
+def create_mvpd_event(cal_svc, entry, dry_run):
+    d = entry["invite_date"]
+    summary = f'{MVPD_SUMMARY_PREFIX}{entry["title"]}'
+    description = build_mvpd_description(entry)
+    body = {
+        "summary": summary,
+        "description": description,
+        "start": {"dateTime": dt_ny(d, 8, 30), "timeZone": MVPD_TZ},
+        "end":   {"dateTime": dt_ny(d, 9, 0),  "timeZone": MVPD_TZ},
+        "reminders": {"useDefault": False, "overrides": []},
+    }
+    if dry_run:
+        print(f"  [DRY-RUN] CREATE  {summary!r} on {d}")
+        return None
+    result = (
+        cal_svc.events()
+        .insert(calendarId=CALENDAR_ID, body=body, sendNotifications=False)
+        .execute()
+    )
+    print(f"  CREATED  {summary!r} on {d} -> {result.get('htmlLink', '')}")
+    return result
 
 
 def retry(fn, *args, retries=2, delay=30, **kwargs):
@@ -414,7 +491,8 @@ def post_slack_summary(stats, today):
     webhook_url = SLACK_WEBHOOK_URL
     if not webhook_url:
         return
-    total = stats["updates"] + stats["creates"] + stats["deletes"]
+    total = (stats["updates"] + stats["creates"] + stats["deletes"]
+             + stats.get("mvpd_creates", 0) + stats.get("mvpd_deletes", 0))
     if total == 0:
         text = f"*Warner Bros. Calendar Sync* — {today}\nNo changes needed, calendar already in sync. :white_check_mark:"
     else:
@@ -440,6 +518,16 @@ def post_slack_summary(stats, today):
             for entry in stats["delete_log"]:
                 d_str = entry["date"].strftime("%-d %b")
                 lines.append(f"• {d_str} — {_fmt_titles(entry['titles'])}")
+        if stats.get("mvpd_create_log"):
+            lines.append("\n*MVPD Check invites created:*")
+            for entry in stats["mvpd_create_log"]:
+                d_str = entry["date"].strftime("%-d %b")
+                lines.append(f"• {d_str} — `{entry['title']}`")
+        if stats.get("mvpd_delete_log"):
+            lines.append("\n*MVPD Check invites deleted:*")
+            for entry in stats["mvpd_delete_log"]:
+                d_str = entry["date"].strftime("%-d %b")
+                lines.append(f"• {d_str} — `{entry['title']}`")
         text = "\n".join(lines)
 
     payload = json.dumps({"text": text}).encode()
@@ -552,10 +640,16 @@ def run_sync(dry_run=False, lookback_days=1, lookahead_days=28,
     print(f"  {len(all_events)} events fetched.")
 
     wb_events_by_date = {}
+    mvpd_events_by_key = {}
     for ev in all_events:
         d = event_date(ev)
-        if d and ev.get("summary", "") == EVENT_SUMMARY:
+        if not d:
+            continue
+        summary = ev.get("summary", "") or ""
+        if summary == EVENT_SUMMARY:
             wb_events_by_date[d] = ev
+        elif summary.startswith(MVPD_SUMMARY_PREFIX):
+            mvpd_events_by_key[(d, summary[len(MVPD_SUMMARY_PREFIX):])] = ev
 
     n_updates = 0
     n_creates = 0
@@ -596,17 +690,50 @@ def run_sync(dry_run=False, lookback_days=1, lookahead_days=28,
             n_deletes += 1
             delete_log.append({"date": d, "titles": all_titles or [EVENT_SUMMARY]})
 
+    print("\nMVPD Check invites...")
+    n_mvpd_creates = 0
+    n_mvpd_deletes = 0
+    mvpd_create_log = []
+    mvpd_delete_log = []
+
+    mvpd_wanted = {}
+    for d, entries in plan.items():
+        for entry in entries:
+            if entry["mvpd_check"]:
+                mvpd_wanted[(d, entry["title"])] = entry
+                if entry["release_type"] not in MVPD_PRICING:
+                    print(f"  WARNING: {entry['title']!r} flagged MVPD Check with "
+                          f"Release Type {entry['release_type']!r} -- no pricing "
+                          f"defined, SRPs will be left blank.")
+
+    for (d, title), entry in sorted(mvpd_wanted.items()):
+        if (d, title) not in mvpd_events_by_key:
+            retry(create_mvpd_event, cal_svc, entry, dry_run)
+            n_mvpd_creates += 1
+            mvpd_create_log.append({"date": d, "title": title})
+
+    for (d, title), ev in sorted(mvpd_events_by_key.items()):
+        if (d, title) not in mvpd_wanted:
+            label = f"{MVPD_SUMMARY_PREFIX}{title}"
+            print(f"  {d}  {label} -- no longer needed, deleting.")
+            retry(delete_event, cal_svc, ev["id"], d, dry_run, label=label)
+            n_mvpd_deletes += 1
+            mvpd_delete_log.append({"date": d, "title": title})
+
     stats = {
         "updates": n_updates, "creates": n_creates, "deletes": n_deletes,
         "update_log": update_log, "create_log": create_log, "delete_log": delete_log,
+        "mvpd_creates": n_mvpd_creates, "mvpd_deletes": n_mvpd_deletes,
+        "mvpd_create_log": mvpd_create_log, "mvpd_delete_log": mvpd_delete_log,
     }
 
-    total_changes = n_updates + n_creates + n_deletes
+    total_changes = n_updates + n_creates + n_deletes + n_mvpd_creates + n_mvpd_deletes
     print("\n" + "-" * 60)
     if total_changes == 0:
         print(f"WB weekly sync -- no changes; {len(wb_events_by_date)} events already in sync")
     else:
-        print(f"WB weekly sync -- {n_updates} update(s), {n_creates} create(s), {n_deletes} delete(s)")
+        print(f"WB weekly sync -- {n_updates} update(s), {n_creates} create(s), {n_deletes} delete(s), "
+              f"{n_mvpd_creates} MVPD Check create(s), {n_mvpd_deletes} MVPD Check delete(s)")
     print(f"Sheet: {SHEET_PUBLIC_URL}")
     print("-" * 60)
 

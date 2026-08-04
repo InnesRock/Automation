@@ -98,6 +98,37 @@ python wb_sync.py --output-json /tmp/wb_sync_output.json
 - MVPD check column ("Yes"/"No"/"tbc"/blank, case-insensitive match on "yes") adds a
   nested "MVPD Check required" sub-bullet directly under that title (italic on
   Calendar, plain on Confluence) -- nothing else changes for that entry.
+- MVPD Check invites: any row with "MVPD Check required" also gets its own separate
+  calendar invite, one per flagged row (so a title flagged on both its Premium and
+  Premium Reprice rows gets two invites, on their respective dates):
+  - Title: `Warner Bros. MVPD Check - [TITLE]`
+  - Time: 8:30am-9:00am `America/New_York` (the rest of the sync uses Europe/London),
+    on that row's invite date
+  - Description (`<br>`-joined, same as the main invite's HTML description field):
+    ```
+    [TITLE]
+    Platforms: DirecTV, Verizon, Xfinity
+    Type: [RELEASE TYPE]
+    Expected SRPs: [BUY], [RENT]
+
+    Campaign description: Tracking Compliance and Merchandising for "[TITLE]", across
+    the title's Premium and Premium Reprice release windows.
+
+    Segment descriptions:
+    Compliance for the [RELEASE TYPE] of "[TITLE]" on [DATE].
+    Merchandising support for the [RELEASE TYPE] of "[TITLE]" on [DATE].
+    ```
+    `[RELEASE TYPE]` is that row's Release Type value (Premium / Premium Reprice);
+    `[DATE]` is that row's own invite date, formatted "4th August 2026" (same value
+    both times). `[BUY]`/`[RENT]` come from `MVPD_PRICING`: Premium = $24.99
+    PEST / $19.99 PVOD, Premium Reprice = $19.99 PEST / $9.99 PVOD. A flagged row
+    with any other Release Type gets a warning logged and blank SRPs (pricing is
+    only defined for Premium/Premium Reprice).
+  - Sync lifecycle: created once per (date, title) key if missing; deleted if that
+    key drops out of the plan (row removed from sheet, or MVPD flag flips to "No")
+    on a later run. **Never updated** once created -- a manual edit to the SRP
+    pricing (or anything else in the description) is left alone on subsequent runs,
+    by design.
 - Deletion: WB Launches events in window with no plan entries are removed
 - Events are silent (no notifications)
 - Slack posts a changelog after each run (added/removed/created/deleted titles per date)
