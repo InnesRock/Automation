@@ -18,7 +18,6 @@ Looper import format, and save the output XLSX.
 ## Connectors required
 
 - **Google Drive MCP** (`mcp__Google-Drive__*`) — for file search and content
-- **Gmail MCP** (`mcp__e02e688d__*`) — fallback source discovery
 
 ## Step 1 — Find the source file
 
@@ -30,12 +29,6 @@ folderId: 1NhHxH8fw_E30QD_4AwD825fVQg2cG6a6
 ```
 
 Take the file with the latest `modifiedTime`. Note its `id` and `name`.
-
-**Fallback (if no file found):** Search Gmail with:
-```
-from:HEDWMSTR.SUPPORT@nbcuni.com subject:"Looper TPR" has:attachment newer_than:3d
-```
-Then locate the corresponding file in Drive by name.
 
 ## Step 2 — Fetch both files as text
 
