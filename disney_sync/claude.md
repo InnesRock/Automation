@@ -1,9 +1,9 @@
 # Disney Calendar Sync — Claude Code Task
 
 ## What this does
-Downloads the Disney Studio Title List XLSX and parser script from Google Drive,
-runs the parser, and keeps the "New Releases – Webstores Clients" Google Calendar
-in sync with Disney releases.
+Downloads the Disney Studio Title List XLSX from Google Drive, runs the local
+`disney_plan.py` parser against it, and keeps the "New Releases – Webstores
+Clients" Google Calendar in sync with Disney releases.
 Runs weekly every Wednesday at 08:00 UK via Claude Code routine.
 
 ## How to run
@@ -32,7 +32,7 @@ python disney_sync.py --output-json /tmp/disney_sync_output.json
 | `GOOGLE_OAUTH_TOKEN` | Yes | Path to token.json — MUST include drive.readonly scope |
 | `SLACK_WEBHOOK_URL` | No | Slack incoming webhook URL for change notifications |
 | `DISNEY_XLSX_ID` | No | Override Drive file ID for the XLSX spreadsheet |
-| `DISNEY_SCRIPT_ID` | No | Override Drive file ID for disney_plan.py |
+| `DISNEY_SCRIPT_PATH` | No | Override local path to disney_plan.py (default: alongside disney_sync.py) |
 | `DISNEY_CALENDAR_ID` | No | Override calendar ID |
 
 ## ⚠️ Re-authentication required
@@ -44,7 +44,7 @@ Update `GOOGLE_OAUTH_TOKEN_JSON` in all three routines with the new token.
 ## Source of truth
 
 - Spreadsheet Drive ID: `1iVxfN6or2RObpSwOJsMy0MNE_bJt2ixt4KdnZZ6oQao`
-- Parser script Drive ID: `1Ev-VzOnh5hmlZa-JPfatyaXxZMhwsR-m`
+- Parser script: `disney_sync/disney_plan.py` (version-controlled in this repo — no longer on Drive)
 - Calendar ID: `c_ca57d25f2d93e30e42baa4e389da3b8fd871b3bb0f6acdf8b3330fdb7cc35d57@group.calendar.google.com`
 - Upcoming Confluence page ID: `3102081040`
 - Historical Confluence page ID: `3100737567`
@@ -52,7 +52,8 @@ Update `GOOGLE_OAUTH_TOKEN_JSON` in all three routines with the new token.
 ## Rules (baked into disney_sync.py)
 - Future window: today → today + 120 days
 - Historical window: today − 730 days → yesterday (for Confluence Historical page)
-- Parser script is downloaded fresh from Drive on each run (picks up manual fixes)
+- Parser script runs locally from `disney_sync/disney_plan.py` — fixes need a
+  commit to this repo, not a live Drive edit
 - Stale TV cleanup: delete Disney Launches events on Mon/Thu/Sat/Sun if all titles end
   with (TV) and the date is not in the parser output
 - Events are silent (no notifications)
