@@ -2,8 +2,9 @@
 """
 disney_sync.py — Disney Calendar Sync
 =======================================
-Downloads the Disney XLSX and parser script from Google Drive, runs the
-parser, and syncs results to the "New Releases – Webstores Clients" Calendar.
+Downloads the Disney XLSX from Google Drive, runs the local disney_plan.py
+parser against it, and syncs results to the "New Releases – Webstores
+Clients" Calendar.
 
 Usage:
     python disney_sync.py [--dry-run] [--output-json PATH]
@@ -42,7 +43,8 @@ except ImportError:
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 XLSX_FILE_ID    = os.getenv("DISNEY_XLSX_ID",    "1iVxfN6or2RObpSwOJsMy0MNE_bJt2ixt4KdnZZ6oQao")
-SCRIPT_FILE_ID  = os.getenv("DISNEY_SCRIPT_ID",  "1Ev-VzOnh5hmlZa-JPfatyaXxZMhwsR-m")
+SCRIPT_PATH     = os.getenv("DISNEY_SCRIPT_PATH",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "disney_plan.py"))
 CALENDAR_ID     = os.getenv("DISNEY_CALENDAR_ID",
     "c_ca57d25f2d93e30e42baa4e389da3b8fd871b3bb0f6acdf8b3330fdb7cc35d57@group.calendar.google.com")
 CALENDAR_TZ     = "Europe/London"
@@ -298,22 +300,20 @@ def run_sync(dry_run=False, output_json=None):
     drive_svc = build("drive",    "v3", credentials=creds)
     cal_svc   = build("calendar", "v3", credentials=creds)
 
-    # ── Download assets from Drive ────────────────────────────────────────────
+    if not os.path.exists(SCRIPT_PATH):
+        sys.exit(f"Parser script not found: {SCRIPT_PATH}")
+
+    # ── Download spreadsheet from Drive, run local parser ────────────────────
     with tempfile.TemporaryDirectory() as tmpdir:
-        xlsx_path   = os.path.join(tmpdir, "disney.xlsx")
-        script_path = os.path.join(tmpdir, "disney_plan.py")
+        xlsx_path = os.path.join(tmpdir, "disney.xlsx")
 
         print("Downloading Disney spreadsheet from Drive...")
         retry(download_drive_file, drive_svc, XLSX_FILE_ID, xlsx_path,
               export_mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         print(f"  OK ({os.path.getsize(xlsx_path):,} bytes)")
 
-        print("Downloading parser script from Drive...")
-        retry(download_drive_file, drive_svc, SCRIPT_FILE_ID, script_path)
-        print(f"  OK ({os.path.getsize(script_path):,} bytes)")
-
-        print("Running parser (DISNEY_USE_TODAY=1)...")
-        parser_output = run_parser(script_path, xlsx_path)
+        print(f"Running parser ({SCRIPT_PATH}, DISNEY_USE_TODAY=1)...")
+        parser_output = run_parser(SCRIPT_PATH, xlsx_path)
         print(f"  Parser returned {len(parser_output)} release date(s).")
 
     # Key by date object
