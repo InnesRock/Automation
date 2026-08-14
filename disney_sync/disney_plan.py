@@ -670,6 +670,7 @@ def emit_json():
 
     title_type_flag = {}  # title -> value of column C (Type: "4K", "Cat", "NR")
     title_media = {}      # title -> value of column D (e.g. "Film", "Bundle")
+    title_row_order = {}  # title -> first row it appears on (source sheet order)
 
     for r in range(3, ws.max_row + 1):
         if ws.row_dimensions[r].hidden:
@@ -683,6 +684,7 @@ def emit_json():
             title_type_flag[title] = str(type_flag).strip()
         if media:
             title_media[title] = media
+        title_row_order.setdefault(title, r)
         years_seen = []
         for _, _, col in SPECS:
             v = cell_value(r, col)
@@ -908,7 +910,9 @@ def emit_json():
                     by_title[title]["order"].append(sg_key)
 
         # Order titles: by earliest (smallest) cat precedence present,
-        # then alphabetically.
+        # then by the title's row order in the source spreadsheet (so related
+        # titles, e.g. a film and its own bundle, stay adjacent as they do
+        # in the sheet, instead of scattering alphabetically).
         title_order = sorted(
             by_title.keys(),
             key=lambda t: (
@@ -917,7 +921,7 @@ def emit_json():
                     for sg in by_title[t]["subgroups"].values()
                     for c in sg["cats"]
                 ),
-                t,
+                title_row_order.get(t, 10**9),
             ),
         )
 
