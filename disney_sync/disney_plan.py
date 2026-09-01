@@ -111,15 +111,35 @@ NON_COUNTRY_TOKENS = {
 # Actually UK is a legit country code; restore:
 NON_COUNTRY_TOKENS = {"EST", "VOD", "PVOD", "POEST", "NR", "EMEA", "APAC", "NA"}
 
+# Some comments spell countries out in full (e.g. "Germany 1st Sep") instead of
+# using the 2-4 letter ISO codes the rest of the sheet uses. Recognize the ones
+# that actually show up so those sub-dates don't silently get dropped.
+FULL_COUNTRY_NAMES = {
+    "AUSTRIA": "AT", "BELGIUM": "BE", "DENMARK": "DK", "FINLAND": "FI",
+    "GERMANY": "DE", "NETHERLANDS": "NL", "NORWAY": "NO", "POLAND": "PL",
+    "SPAIN": "ES", "SWEDEN": "SE", "SWITZERLAND": "CH", "BRITAIN": "GB",
+    "IRELAND": "IE", "ITALY": "IT", "PORTUGAL": "PT", "UKRAINE": "UA",
+    "FRANCE": "FR",
+}
+
+
+NOTE_BOUNDARY = " @@NOTE@@ "
+
 
 def strip_threaded_boilerplate(text):
     """Strip the Excel threaded-comment author preamble down to content."""
     m = re.search(r"Comment:\s*(.*)", text, flags=re.DOTALL)
     if m:
         text = m.group(1)
-    # collapse whitespace, convert "Reply:" boundaries to a delimiter we can split on
+    # A literal newline marks a boundary between separate notes: either
+    # openpyxl's own "Reply:"-separated thread text, or multiple active
+    # threaded-comment replies joined with "\n" by load_active_threaded_comments.
+    # Turn it into an explicit token *before* collapsing whitespace below erases
+    # it, so the tokeniser can tell "two independent (date, countries) notes"
+    # apart from "one note split across a date and its countries".
+    text = re.sub(r"\n\s*", NOTE_BOUNDARY, text)
     text = re.sub(r"\s+", " ", text).strip()
-    text = text.replace("Reply: ", " ; ").replace("Reply:", " ; ")
+    text = text.replace("Reply: ", NOTE_BOUNDARY).replace("Reply:", NOTE_BOUNDARY)
     return text
 
 
@@ -170,6 +190,7 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
     i = 0
     current = None
     pending_phrase = None  # phrase attaching to the NEXT date entry
+    pending_countries = []  # countries seen before their date ("Germany 1st Sep")
 
     def flush():
         nonlocal current
@@ -177,8 +198,44 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
             entries.append(current)
         current = None
 
+    def looks_like_date_start(idx):
+        """True if tokens[idx] (plus a possible following token) opens a date."""
+        if idx >= len(tokens):
+            return False
+        t = tokens[idx]
+        if re.fullmatch(r"(\d{1,2})/(\d{1,2})", t):
+            return True
+        if t in MONTHS and idx + 1 < len(tokens):
+            return re.sub(r"(st|nd|rd|th)$", "", tokens[idx + 1]).isdigit()
+        day_tok = re.sub(r"(st|nd|rd|th)$", "", t)
+        if day_tok.isdigit() and idx + 1 < len(tokens):
+            return tokens[idx + 1] in MONTHS
+        return False
+
+    def attach_countries(codes):
+        """Attach resolved country codes to the current entry, deferring to the
+        NEXT date if one opens immediately after this token (handles
+        country-before-date notes like "Germany 1st Sep")."""
+        nonlocal current
+        if looks_like_date_start(i + 1):
+            pending_countries.extend(codes)
+            return
+        if current is None:
+            current = {"raw_date": None, "date": main_cell_date, "fmt": "main cell",
+                       "countries": [], "ambiguity": None, "phrase": None}
+        current["countries"].extend(codes)
+
     while i < len(tokens):
         tok = tokens[i]
+
+        # Note boundary (separate reply / separate line in one comment): close
+        # out whatever entry is open so the next note starts clean, and drop
+        # any country label that never found its date within this note.
+        if tok == "@@NOTE@@":
+            flush()
+            pending_countries.clear()
+            i += 1
+            continue
 
         # Numeric date
         m = re.fullmatch(r"(\d{1,2})/(\d{1,2})", tok)
@@ -220,8 +277,10 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
                 d = date(reference_year, mo, da)
             except ValueError:
                 d = None
-            current = {"raw_date": tok, "date": d, "fmt": fmt, "countries": [],
+            current = {"raw_date": tok, "date": d, "fmt": fmt,
+                       "countries": pending_countries.copy(),
                        "ambiguity": ambiguity, "phrase": pending_phrase}
+            pending_countries.clear()
             pending_phrase = None
             i += 1
             continue
@@ -233,8 +292,9 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
                 flush()
                 d = date(reference_year, MONTHS[tok], int(day_tok))
                 current = {"raw_date": f"{tok} {tokens[i+1]}", "date": d,
-                           "fmt": "written", "countries": [], "ambiguity": None,
-                           "phrase": pending_phrase}
+                           "fmt": "written", "countries": pending_countries.copy(),
+                           "ambiguity": None, "phrase": pending_phrase}
+                pending_countries.clear()
                 pending_phrase = None
                 i += 2
                 continue
@@ -245,8 +305,9 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
             flush()
             d = date(reference_year, MONTHS[tokens[i+1]], int(day_tok))
             current = {"raw_date": f"{tok} {tokens[i+1]}", "date": d,
-                       "fmt": "written", "countries": [], "ambiguity": None,
-                       "phrase": pending_phrase}
+                       "fmt": "written", "countries": pending_countries.copy(),
+                       "ambiguity": None, "phrase": pending_phrase}
+            pending_countries.clear()
             pending_phrase = None
             i += 2
             continue
@@ -285,10 +346,6 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
 
         # Country-code chunk (slash-separated uppercase codes, possibly with "/")
         if re.fullmatch(r"[A-Z]{2,4}(?:/[A-Z]{2,4})*", tok):
-            if current is None:
-                # no preceding date -> attach to main cell date
-                current = {"raw_date": None, "date": main_cell_date, "fmt": "main cell",
-                           "countries": [], "ambiguity": None, "phrase": None}
             # filter out type/region tokens that aren't actual country codes
             parts = [p for p in tok.split("/") if p not in NON_COUNTRY_TOKENS]
             # flag a known typo: "PLES" (missing slash between PL and ES)
@@ -296,11 +353,19 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
             for p in parts:
                 if p == "PLES":
                     expanded.extend(["PL", "ES"])
-                    current.setdefault("_notes", []).append(
-                        f"source typo 'PLES' expanded to 'PL/ES'")
                 else:
                     expanded.append(p)
-            current["countries"].extend(expanded)
+            attach_countries(expanded)
+            i += 1
+            continue
+
+        # Full country name(s), possibly slash-joined (e.g. "Germany",
+        # "France/Ireland/Portugal/Ukraine"). Some comments spell countries
+        # out in full instead of using the 2-4 letter ISO codes above — resolve
+        # them the same way so those sub-dates don't silently get dropped.
+        name_parts = [p.upper() for p in tok.split("/")]
+        if all(p in FULL_COUNTRY_NAMES for p in name_parts):
+            attach_countries([FULL_COUNTRY_NAMES[p] for p in name_parts])
             i += 1
             continue
 
