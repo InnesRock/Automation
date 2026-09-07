@@ -344,6 +344,34 @@ def parse_comment(raw, title, coord, main_cell_date, reference_year=None):
                 i += 1
             continue
 
+        # "<anything> excluding/except/excl X/Y/Z" -- e.g. "all regions
+        # excluding IT/ES/FR". Unlike the "Everywhere except ..." phrase
+        # above (which is deliberately dropped), here the excluded
+        # countries are the whole point of the note and must stay visible,
+        # so fold them into a phrase ("excl. IT/ES/FR") rather than
+        # attaching them as included countries — attaching them would
+        # invert the meaning (excluded countries would render as the ones
+        # that ARE launching).
+        if tok.lower() in ("excluding", "except", "excl", "excl."):
+            i += 1
+            excl_codes = []
+            if i < len(tokens) and re.fullmatch(r"[A-Z]{2,4}(?:/[A-Z]{2,4})*", tokens[i]):
+                parts = [p for p in tokens[i].split("/") if p not in NON_COUNTRY_TOKENS]
+                expanded = []
+                for p in parts:
+                    if p == "PLES":
+                        expanded.extend(["PL", "ES"])
+                    else:
+                        expanded.append(p)
+                excl_codes = expanded
+                i += 1
+            phrase = f"excl. {'/'.join(excl_codes)}" if excl_codes else "excl."
+            if current is not None and not current["countries"] and not current.get("phrase"):
+                current["phrase"] = phrase
+            else:
+                pending_phrase = phrase
+            continue
+
         # Country-code chunk (slash-separated uppercase codes, possibly with "/")
         if re.fullmatch(r"[A-Z]{2,4}(?:/[A-Z]{2,4})*", tok):
             # filter out type/region tokens that aren't actual country codes
