@@ -85,6 +85,8 @@ SPECS = [
     ("VOD",      "NA", 18),  ("VOD",      "EMEA", 19),  ("VOD",      "FR", 20),
 ]
 
+NOTES_COL = 23  # column W ("Notes"); "w/ <Title>" flags a bundle's included NR title
+
 MONTHS = {m: i for i, m in enumerate(
     ["January","February","March","April","May","June",
      "July","August","September","October","November","December"], start=1)}
@@ -764,6 +766,7 @@ def emit_json():
     title_type_flag = {}  # title -> value of column C (Type: "4K", "Cat", "NR")
     title_media = {}      # title -> value of column D (e.g. "Film", "Bundle")
     title_row_order = {}  # title -> first row it appears on (source sheet order)
+    title_bundle_note = {}  # title -> raw "w/ <Title>" text from column W
 
     for r in range(3, ws.max_row + 1):
         if ws.row_dimensions[r].hidden:
@@ -778,6 +781,9 @@ def emit_json():
         if media:
             title_media[title] = media
         title_row_order.setdefault(title, r)
+        note = ws.cell(row=r, column=NOTES_COL).value
+        if note and str(note).strip().startswith("w/ "):
+            title_bundle_note[title] = str(note).strip()[3:].strip()
         years_seen = []
         for _, _, col in SPECS:
             v = cell_value(r, col)
@@ -809,6 +815,14 @@ def emit_json():
                     "coord": coord,
                     "row_year": row_year.get(r),
                 }
+
+    # Resolve each bundle's "w/ <Title>" note against known titles. Only an
+    # exact match counts — a typo'd or not-yet-added referenced title just
+    # falls back to the plain "(Bundle)" suffix rather than showing bad data.
+    title_bundle_parent = {
+        title: ref for title, ref in title_bundle_note.items()
+        if ref in title_row_order
+    }
 
     comment_expansions = {}
     for key, info in emea_cells.items():
@@ -1024,10 +1038,15 @@ def emit_json():
             media = title_media.get(title, "Film")
             flag = title_type_flag.get(title)
 
-            # Title header: append "(Bundle)" etc. when media != Film
+            # Title header: append "(Bundle)" etc. when media != Film, expanded
+            # to "(Bundle, w/ <Title>)" when the sheet flags an included NR title.
             header = f"<b>{title}</b>"
             if media and media != "Film":
-                header = f"<b>{title}</b> ({media})"
+                parent = title_bundle_parent.get(title)
+                if parent:
+                    header = f"<b>{title}</b> ({media}, w/ {parent})"
+                else:
+                    header = f"<b>{title}</b> ({media})"
 
             # Sub-groups sorted by smallest CAT precedence inside each sub-group
             subgroups = list(by_title[title]["subgroups"].values())
