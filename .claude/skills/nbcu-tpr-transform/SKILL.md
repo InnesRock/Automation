@@ -81,10 +81,17 @@ The script prints a JSON summary to stdout:
 {
   "output_rows": 1981,
   "unknown_mpms": ["05603"],
+  "unknown_mpm_titles": ["Some Movie Title"],
   "unknown_platforms": [],
   "skipped_rows": 0
 }
 ```
+
+`unknown_mpms` and `unknown_mpm_titles` are parallel lists (same order,
+sorted by title): the title always comes from the source file's own Product
+Name column for that row, never from the reference — an "unknown" MPM is by
+definition absent from the reference title list, so it has no title there to
+look up.
 
 ## Step 5 — Post to Slack
 
@@ -93,6 +100,10 @@ Run:
 pip install slack-sdk --break-system-packages -q
 python <skill_dir>/scripts/post_to_slack.py "<output_path>" "✅ NBCU TPR Transformation complete — <output_rows> rows." "<unknown_mpms_csv from summary, or empty string if none>"
 ```
+
+When composing the Slack `initial_comment` yourself (rather than via
+`post_to_slack.py`'s fixed summary string), reference any unknown MPMs by
+**title**, using `unknown_mpm_titles` from the summary — not by MPM code.
 
 ## Platform rename map (for reference)
 
