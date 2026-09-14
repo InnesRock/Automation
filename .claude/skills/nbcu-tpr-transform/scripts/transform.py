@@ -22,7 +22,8 @@ output_path     Where to write the output .xlsx file.
 Output
 ------
 Prints a JSON summary to stdout:
-    {"output_rows": N, "unknown_mpms": [...], "unknown_platforms": [...], "skipped_rows": N}
+    {"output_rows": N, "unknown_mpms": [...], "unknown_mpm_titles": [...],
+     "unknown_platforms": [...], "skipped_rows": N}
 
 Exits with code 0 on success, non-zero on failure.
 """
@@ -134,6 +135,9 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
 
     rows = []
     unknown_mpms: set = set()
+    unknown_mpm_titles: dict = {}   # mpm -> title (from the source file, since
+                                    # an unknown MPM by definition has no entry
+                                    # in the reference title list)
     unknown_platforms: set = set()
     skipped_rows = 0
 
@@ -158,6 +162,7 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
         # Flag MPMs not in the reference list
         if ref_mpms and mpm not in ref_mpms:
             unknown_mpms.add(mpm)
+            unknown_mpm_titles.setdefault(mpm, title)
 
         # Emit one output row per non-zero price
         row_emitted = False
@@ -201,10 +206,11 @@ def transform(src_text: str, ref_text: str, output_path: str) -> dict:
     wb.save(output_path)
 
     return {
-        'output_rows':       len(rows),
-        'unknown_mpms':      sorted(unknown_mpms),
-        'unknown_platforms': sorted(unknown_platforms),
-        'skipped_rows':      skipped_rows,
+        'output_rows':         len(rows),
+        'unknown_mpms':        sorted(unknown_mpms),
+        'unknown_mpm_titles':  sorted(unknown_mpm_titles.values()),
+        'unknown_platforms':   sorted(unknown_platforms),
+        'skipped_rows':        skipped_rows,
     }
 
 
