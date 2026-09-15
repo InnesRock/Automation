@@ -106,6 +106,16 @@ TYPE_PRECEDENCE = {
     "EST/VOD":         4,
 }
 
+# Title-level sort order within a day's calendar invite: Premium > Premium
+# Reprice > Pre-Order > Standard (EST/VOD) > 4K. Anything not listed here
+# (EST, VOD, EST/VOD) falls through to the Standard rank (4) in
+# _title_type_rank; 4K types are ranked 5 there regardless of this dict.
+TITLE_SORT_PRECEDENCE = {
+    "Premium":         1,
+    "Premium Reprice": 2,
+    "Pre-Order":       3,
+}
+
 
 def get_credentials():
     sa_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -259,7 +269,15 @@ def build_description(entries, manual_prefix=""):
         groups.sort(key=lambda g: TYPE_PRECEDENCE.get(g[1][0].replace("4K ", ""), 99))
         return groups
 
-    titles = sorted(title_type_regions.keys())
+    def _title_type_rank(t):
+        if t.startswith("4K "):
+            return 5
+        return TITLE_SORT_PRECEDENCE.get(t, 4)  # EST/VOD (Standard) and anything else -> 4
+
+    def title_rank(title):
+        return min(_title_type_rank(t) for t in title_type_regions[title])
+
+    titles = sorted(title_type_regions.keys(), key=lambda t: (title_rank(t), t))
     n = len(titles)
     html = f"<p><b>NBCU releases landing today ({n}):</b></p><ul>"
 
