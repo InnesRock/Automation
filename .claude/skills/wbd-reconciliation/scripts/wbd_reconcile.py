@@ -183,18 +183,51 @@ def load_rs(path):
 # Load DC from XLSX
 # ---------------------------------------------------------------------------
 
+def _find_dc_columns(rows):
+    """Locate the DC header row and the column indices of the four dates we check.
+
+    The DC layout has changed over time (reprice columns were inserted between PVOD
+    and EST), so look the columns up by header name. Reprice columns are named
+    'PEST Reprice Date' / 'PVOD Reprice Date', so exact header matches avoid them.
+    Returns (header_row_index, {'pest','pvod','est','vod'} -> col index) or (None, None).
+    """
+    wanted = {'pest date': 'pest', 'pvod date': 'pvod', 'est date': 'est', 'vod date': 'vod'}
+    for r_idx, row in enumerate(rows[:10]):
+        found = {}
+        for c_idx, cell in enumerate(row):
+            key = ' '.join(str(cell).split()).lower() if cell is not None else ''
+            if key in wanted and wanted[key] not in found:
+                found[wanted[key]] = c_idx
+        if len(found) == 4:
+            return r_idx, found
+    return None, None
+
+
 def load_dc(xlsx_path):
     wb = openpyxl.load_workbook(xlsx_path, data_only=True)
     ws = wb.active
+    rows = list(ws.iter_rows(values_only=True))
+
+    hdr_idx, cols = _find_dc_columns(rows)
+    if cols is None:
+        # Legacy fixed layout: Title, _, PEST, _, PVOD, _, EST, _, VOD
+        print("WARNING: DC header row not found - falling back to legacy column positions")
+        hdr_idx, cols = 0, {'pest': 2, 'pvod': 4, 'est': 6, 'vod': 8}
+    else:
+        print("DC columns (0-indexed): " + ", ".join(f"{k.upper()}={v}" for k, v in cols.items()))
+
+    def cell(row, i):
+        return row[i] if i < len(row) else None
+
     entries = []
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        title = row[0]
+    for row in rows[hdr_idx + 1:]:
+        title = row[0] if row else None
         if not title or not str(title).strip():
             continue
-        pest = parse_dc_date(row[2])
-        pvod = parse_dc_date(row[4])
-        est  = parse_dc_date(row[6])
-        vod  = parse_dc_date(row[8])
+        pest = parse_dc_date(cell(row, cols['pest']))
+        pvod = parse_dc_date(cell(row, cols['pvod']))
+        est  = parse_dc_date(cell(row, cols['est']))
+        vod  = parse_dc_date(cell(row, cols['vod']))
         if not any([pest, pvod, est, vod]):
             continue
         entries.append({
