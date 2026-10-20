@@ -114,7 +114,7 @@ for transparency. Matching is case-insensitive on the PARTNER field:
 |-----------------|----------------------|
 | amazon          | Amazon               |
 | amazon ca       | Amazon               |
-| vudu            | Fandango at Home     |
+| vudu            | Fandango             |
 | google play us  | YouTube              |
 | google play ca  | YouTube              |
 | cineplex        | CosmoGO              |
