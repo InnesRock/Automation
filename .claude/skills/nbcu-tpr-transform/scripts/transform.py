@@ -41,7 +41,7 @@ from datetime import datetime
 RENAMES = {
     'amazon':         'Amazon',
     'amazon ca':      'Amazon',
-    'vudu':           'Fandango at Home',
+    'vudu':           'Fandango',
     'google play us': 'YouTube',
     'google play ca': 'YouTube',
     'cineplex':       'CosmoGO',
